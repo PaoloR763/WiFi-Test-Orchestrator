@@ -1,0 +1,42 @@
+%% WiFi Test Orchestrator architecture baseline 0.1.0
+flowchart TB
+    User[Authorized user]
+    Agent[Agent clients]
+
+    subgraph Server[Linux OCI server services]
+        Web[React web frontend]
+        API[FastAPI service]
+        Orchestrator[Scheduler and orchestrator]
+        Worker[Execution workers]
+        Telemetry[Telemetry ingestion]
+        Artifacts[Artifact service]
+        Integrations[Integration adapters]
+        Notifications[Notification adapter]
+    end
+
+    Postgres[(PostgreSQL)]
+    Redis[(Redis)]
+    Store[(Filesystem or S3 compatible store)]
+    Infrastructure[Authorized infrastructure]
+    Push[FCM and APNs]
+
+    User -->|HTTPS| Web
+    Web -->|API v1 HTTPS| API
+    Agent -->|Outbound HTTPS| API
+    Agent -->|Telemetry| Telemetry
+    Agent -->|Artifact upload| Artifacts
+
+    API --> Postgres
+    API --> Redis
+    API --> Orchestrator
+    Orchestrator --> Postgres
+    Orchestrator --> Redis
+    Redis --> Worker
+    Worker --> Postgres
+    Telemetry --> Postgres
+    Artifacts --> Postgres
+    Artifacts --> Store
+    Worker --> Integrations
+    Integrations --> Infrastructure
+    API --> Notifications
+    Notifications --> Push

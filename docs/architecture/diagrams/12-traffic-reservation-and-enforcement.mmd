@@ -1,0 +1,19 @@
+%% WiFi Test Orchestrator architecture baseline 0.1.0
+sequenceDiagram
+    participant O as Authorized operator
+    participant S as Reservation Service
+    participant N as Traffic Node
+    participant A as Agent
+
+    O->>S: Request traffic test
+    S->>S: Validate RBAC, policy, capability and authorized target
+    S->>N: Query available capacity
+    N-->>S: Capacity and constraints
+    S->>S: Resolve inherited limits into concrete effective limits
+    S-->>A: Task referencing server-issued reservation
+    S-->>N: Reservation authorization
+    A->>A: Verify agent, execution, destination and limits
+    A->>N: Open reserved data-plane flow
+    N->>N: Enforce destination, protocol, time and resource limits
+    N-->>A: Test traffic and provider result
+    A->>S: Report result, reservation and effective limits

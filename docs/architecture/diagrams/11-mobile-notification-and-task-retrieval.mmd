@@ -1,0 +1,14 @@
+%% WiFi Test Orchestrator architecture baseline 0.1.0
+sequenceDiagram
+    participant S as Server
+    participant N as FCM or APNs
+    participant M as Mobile agent
+
+    S->>N: Send notification without task or secret
+    N-->>M: Best-effort notice
+    Note over N,M: Notice may be delayed, duplicated or lost
+    M->>M: Evaluate OS lifecycle and permitted execution
+    M->>S: Retrieve task by outbound HTTPS
+    S-->>M: Current task or no available work
+    M->>M: Validate foreground, permission and interaction conditions
+    M->>S: Execute, defer or report reason through HTTPS

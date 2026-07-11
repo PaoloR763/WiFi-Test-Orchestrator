@@ -1,0 +1,25 @@
+%% WiFi Test Orchestrator architecture baseline 0.1.0
+flowchart LR
+    subgraph Server[Control server]
+        Web[Web and API]
+        Worker[Workers]
+        State[(PostgreSQL and Redis)]
+        Store[(Artifact store)]
+    end
+
+    subgraph AuthorizedNetworks[Authorized test networks]
+        TrafficA[Traffic Node A]
+        TrafficB[Traffic Node B]
+        AgentA[Agent group A]
+        AgentB[Agent group B]
+    end
+
+    AgentA -->|Outbound HTTPS| Web
+    AgentB -->|Outbound HTTPS| Web
+    Web --> State
+    State --> Worker
+    Worker --> Store
+    Web -->|Reservations and capacity| TrafficA
+    Web -->|Reservations and capacity| TrafficB
+    AgentA -->|Reserved data plane| TrafficA
+    AgentB -->|Reserved data plane| TrafficB

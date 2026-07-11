@@ -1,0 +1,36 @@
+%% WiFi Test Orchestrator architecture baseline 0.1.0
+flowchart TB
+    Server[Server HTTPS API]
+
+    subgraph Agent[Agent boundary]
+        Core[Agent Core]
+        Delivery[Delivery Client]
+        LocalQueue[(SQLite local queue)]
+        Guard[Policy Guard]
+        Runtime[Plugin Runtime]
+        OS[OS or Mobile Adapter]
+        Telemetry[Telemetry Collector]
+        Time[Time Quality Estimator]
+        Upload[Artifact Uploader]
+        Credentials[Platform credential store]
+    end
+
+    Provider[Allowlisted provider]
+    Network[Authorized test destination]
+
+    Delivery -->|Outbound HTTPS| Server
+    Server -->|HTTPS response| Delivery
+    Delivery --> LocalQueue
+    Delivery --> Credentials
+    LocalQueue --> Guard
+    Guard --> Core
+    Core --> Runtime
+    Core --> OS
+    Runtime --> Provider
+    Provider -->|Reserved traffic only| Network
+    OS --> Telemetry
+    Runtime --> Telemetry
+    Time --> Telemetry
+    Telemetry --> Delivery
+    Runtime --> Upload
+    Upload -->|Outbound HTTPS| Server

@@ -1,0 +1,35 @@
+%% WiFi Test Orchestrator architecture baseline 0.1.0
+flowchart LR
+    subgraph ControlNetwork[Control network]
+        Web[Web frontend]
+        API[API service]
+        Workers[Worker pool]
+        State[(PostgreSQL and Redis)]
+    end
+
+    subgraph ArtifactNetwork[Artifact network]
+        Store[(S3 compatible artifact store)]
+    end
+
+    subgraph TestNetworks[Authorized test networks]
+        Traffic[Traffic Nodes]
+        Agents[Agents]
+        Capture[Capture Nodes]
+    end
+
+    subgraph ManagementNetwork[Infrastructure management network]
+        Adapters[Integration adapters]
+        Infra[APs, gateways and controllers]
+    end
+
+    Web --> API
+    Agents -->|Outbound HTTPS| API
+    Capture -->|Outbound HTTPS| API
+    API --> State
+    State --> Workers
+    Workers --> Store
+    API -->|Reservation control| Traffic
+    Agents -->|Reserved data plane| Traffic
+    Workers --> Adapters
+    Adapters --> Infra
+    Capture --> Store

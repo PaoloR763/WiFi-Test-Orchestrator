@@ -1,21 +1,34 @@
-﻿# WiFi Test Orchestrator
+# WiFi Test Orchestrator
 
 Plataforma distribuida para automatizar, ejecutar, observar y administrar
 pruebas Wi-Fi en laboratorios, pilotos y redes autorizadas.
 
 ## Estado del proyecto
 
-El proyecto se encuentra en su etapa inicial de arquitectura, definición
-de contratos y preparación del entorno de desarrollo.
+El proyecto se encuentra en la Fase 01: arquitectura, ADRs y modelo de
+amenazas. El producto inicial tendrá versión `0.1.0`, pero todavía no existe
+una implementación funcional ni una release publicada.
 
-Todavía no existe una versión funcional del producto.
+Baselines aprobados:
+
+| Superficie | Versión inicial |
+|---|---|
+| Producto | `0.1.0` |
+| API | `v1` |
+| JSON Schemas | `1.0.0` |
+| Agent Protocol | `1.0.0` |
+| Plugin API | `1.0.0` |
+
+La documentación arquitectónica canónica se encuentra en
+[docs/architecture](docs/architecture/README.md). Los ADRs especializan las
+reglas globales de `AGENTS.md` sin contradecirlas.
 
 ## Objetivos principales
 
 - Administrar dispositivos y agentes de prueba.
 - Recopilar telemetría Wi-Fi y del sistema operativo.
 - Ejecutar pruebas de conectividad, latencia, throughput y estabilidad.
-- Generar tráfico controlado mediante proveedores intercambiables.
+- Generar tráfico controlado mediante providers intercambiables.
 - Gestionar casos, suites, planes y campañas de prueba.
 - Correlacionar métricas del endpoint con APs, gateways y controladores.
 - Almacenar logs, capturas, métricas y evidencias.
@@ -24,95 +37,101 @@ Todavía no existe una versión funcional del producto.
 
 ## Arquitectura prevista
 
-La solución estará compuesta por:
+La solución contempla:
 
-- Servidor central.
+- Servidor central portable.
 - Interfaz web.
-- Motor de orquestación.
-- Motor de pruebas.
-- Motor de generación de tráfico.
-- Agente Windows.
-- Agente Linux.
-- Aplicación agente Android.
-- Aplicación agente iOS.
-- Capture Nodes especializados.
+- Motor de orquestación y cola persistente.
+- Motor de pruebas y tráfico extensible.
+- Agentes Windows y Linux.
+- Aplicaciones agente Android e iOS.
+- Agente simulado.
+- Traffic Nodes y Capture Nodes especializados.
 - Adaptadores para infraestructura de red.
-- Sistema de campañas, resultados, artefactos y reportes.
+- Campañas, resultados, telemetría, artefactos y reportes.
+
+Las responsabilidades se separan entre control plane, data plane, telemetry
+plane, artifact plane e integration plane.
 
 ## Servidor
 
-El despliegue inicial estará orientado a Windows mediante:
+El desarrollo inicial se realiza en Windows 11 mediante Docker Desktop y WSL2.
+Los servicios del servidor se ejecutarán como contenedores Linux OCI y no
+dependerán funcionalmente de rutas, servicios ni APIs del host Windows.
 
-- Windows 11.
-- Docker Desktop.
-- WSL2.
-- Contenedores Linux.
+La portabilidad futura incluye Linux, macOS y entornos cloud sin cambiar el
+dominio ni los contratos.
 
-Los servicios deben mantenerse desacoplados del sistema operativo para
-permitir futuros despliegues en:
+## Agentes y capabilities
 
-- Linux.
-- Servidores virtuales.
-- Cloud.
-- Kubernetes.
+La arquitectura contempla Windows, Linux, Android e iOS. Cada agente publicará
+un Capability Manifest multidimensional. El servidor no asumirá paridad entre
+plataformas ni reducirá soporte, implementación, permisos, interacción y
+background a un único estado.
 
-## Agentes
+Toda afirmación depende de versión del sistema operativo, hardware, driver,
+permisos, entitlements y APIs disponibles.
 
-La plataforma contempla agentes para:
+La primera implementación funcional priorizará:
 
-- Windows.
-- Linux.
-- Android.
-- iOS.
+1. Servidor.
+2. Frontend.
+3. Agente simulado.
+4. Agente Windows.
+5. Agente Linux.
 
-Cada agente informará sus capacidades reales mediante un Capability
-Manifest.
-
-El servidor no debe asumir que todas las plataformas pueden ejecutar las
-mismas operaciones. Las restricciones de seguridad, permisos y ejecución
-en segundo plano deben respetarse individualmente.
+Android e iOS estarán contemplados por los contratos desde el inicio, con
+implementación posterior y respetando sus lifecycles.
 
 ## Generación de tráfico
 
-El motor de tráfico será extensible y podrá incluir proveedores como:
+El motor será capability-driven. `traffic.tcp.throughput` y
+`traffic.udp.throughput` describen funciones; iperf3 será un provider/plugin:
 
-- iperf3.
-- HTTP upload/download.
-- Sockets TCP y UDP nativos.
-- Flent.
-- Tráfico compuesto.
-- Replay controlado de PCAP en nodos especializados.
+```yaml
+provider_id: traffic-provider-iperf3
+implements:
+  - traffic.tcp.throughput
+  - traffic.udp.throughput
+```
+
+Toda prueba de tráfico tendrá límites efectivos concretos y un destino
+autorizado mediante una reserva emitida por el servidor. Un límite solicitado
+`null` significa heredar política, nunca ejecución ilimitada.
 
 ## Documentación
 
-- `docs/`: documentación técnica y arquitectura general.
-- `prompts/`: prompts de desarrollo divididos por fases para Codex.
-- `architecture/`: ADRs, diagramas, contratos y modelo de amenazas.
-- `scripts/`: scripts de desarrollo, instalación y mantenimiento.
-- `AGENTS.md`: reglas permanentes que Codex debe respetar.
+- `docs/architecture/`: arquitectura normativa de Fase 01, Mermaid, ADRs,
+  threat model y capability matrix.
+- `prompts/`: prompts de desarrollo divididos por fases y ejemplos
+  ilustrativos no normativos.
+- `scripts/`: futuros scripts de desarrollo y mantenimiento.
+- `AGENTS.md`: reglas permanentes y autoridad normativa global.
+- `CHANGELOG.md`: cambios del producto.
+
+Los PDF y DOCX existentes se conservan como archivos del repositorio; la
+arquitectura canónica de esta fase es la documentación Markdown bajo
+`docs/architecture/`.
 
 ## Seguridad y uso autorizado
 
 La plataforma se utilizará exclusivamente sobre dispositivos, servidores,
 redes y laboratorios autorizados.
 
-No debe proporcionar una consola remota arbitraria ni permitir la
-ejecución de comandos fuera de plugins y acciones expresamente autorizadas.
+No proporcionará una consola remota arbitraria ni permitirá comandos fuera de
+plugins y acciones allowlisted. Agentes usan HTTPS outbound-only, credenciales
+individuales rotables, leases e idempotencia. FCM y APNs son avisos; las tareas
+se recuperan por HTTPS.
 
-## Roadmap inicial
+## Roadmap
+
+El orden detallado se mantiene en
+[prompts/PROMPT_INDEX.md](prompts/PROMPT_INDEX.md). Las primeras etapas son:
 
 1. Arquitectura, ADRs y modelo de amenazas.
 2. Monorepo e infraestructura local.
-3. Backend, base de datos y autenticación.
-4. Contratos y protocolo servidor-agente.
-5. Agente de escritorio común.
-6. Agente Windows.
-7. Agente Linux.
-8. Agente Android.
-9. Agente iOS.
-10. Motor de orquestación.
-11. Pruebas básicas de red.
-12. Motor extensible de generación de tráfico.
-13. Campañas, dashboards y reportes.
-14. Seguridad, observabilidad y distribución.
-15. Validación end-to-end.
+3. Backend, base de datos, autenticación y RBAC.
+4. Contratos, capabilities y enrolamiento.
+5. Agentes y orquestación multiplataforma.
+6. Probes, tráfico, telemetría, campañas y artefactos.
+7. Seguridad, observabilidad, packaging y validación end-to-end.
