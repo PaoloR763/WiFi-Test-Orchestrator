@@ -1,0 +1,29 @@
+{
+  "schema_version": "2.0",
+  "plugin_id": "com.example.traffic.iperf3",
+  "plugin_version": "1.0.0",
+  "plugin_api_version": "2.0",
+  "kind": "traffic_generator",
+  "platforms": [
+    "windows",
+    "linux"
+  ],
+  "capabilities": [
+    "traffic.iperf3.tcp",
+    "traffic.iperf3.udp"
+  ],
+  "config_schema": "schemas/iperf3_config.schema.json",
+  "result_schema": "schemas/iperf3_result.schema.json",
+  "permissions": [
+    "process.spawn.allowlisted"
+  ],
+  "resource_limits": {
+    "max_duration_seconds": 3600,
+    "max_parallel_streams": 32
+  },
+  "signature": {
+    "algorithm": "ed25519",
+    "key_id": "dev-example",
+    "value": "placeholder-for-test-fixture"
+  }
+}

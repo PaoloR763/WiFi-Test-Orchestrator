@@ -1,0 +1,31 @@
+{
+  "schema_version": "2.0",
+  "execution_id": "00000000-0000-0000-0000-000000000011",
+  "status": "completed",
+  "outcome": "pass",
+  "started_at": "2026-07-11T18:01:00Z",
+  "finished_at": "2026-07-11T18:01:36Z",
+  "platform": "windows",
+  "provider": {
+    "id": "iperf3",
+    "version": "3.21",
+    "method": "tcp_reverse"
+  },
+  "summary": {
+    "average_bps": 612345678,
+    "p95_interval_bps": 650000000,
+    "bytes": 2296296292
+  },
+  "availability": {
+    "retransmissions": "measured",
+    "rssi_dbm": "measured",
+    "noise_dbm": "not_exposed_by_platform"
+  },
+  "artifacts": [
+    {
+      "type": "raw_result",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "media_type": "application/json"
+    }
+  ]
+}

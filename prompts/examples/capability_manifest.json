@@ -1,0 +1,45 @@
+{
+  "schema_version": "2.0",
+  "agent_id": "00000000-0000-0000-0000-000000000001",
+  "platform": "android",
+  "platform_version": "15",
+  "agent_version": "0.1.0",
+  "generated_at": "2026-07-11T18:00:00Z",
+  "capabilities": [
+    {
+      "id": "wifi.current_connection",
+      "version": "1.0",
+      "support": "conditional",
+      "conditions": [
+        "runtime_permission"
+      ],
+      "provider": "android.wifi",
+      "limits": {}
+    },
+    {
+      "id": "traffic.http.download",
+      "version": "1.0",
+      "support": "supported",
+      "provider": "okhttp",
+      "limits": {
+        "max_duration_seconds": 1800,
+        "max_parallel_streams": 8
+      }
+    },
+    {
+      "id": "traffic.iperf3.tcp",
+      "version": "1.0",
+      "support": "unsupported",
+      "availability_reason": "binary_provider_not_installed"
+    },
+    {
+      "id": "execution.background_continuous",
+      "version": "1.0",
+      "support": "conditional",
+      "conditions": [
+        "foreground_service_visible",
+        "os_time_limits"
+      ]
+    }
+  ]
+}

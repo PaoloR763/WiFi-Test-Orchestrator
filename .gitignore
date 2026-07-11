@@ -1,0 +1,173 @@
+﻿# ============================================================
+# Secrets and local configuration
+# ============================================================
+
+.env
+.env.*
+!.env.example
+
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+
+secrets/
+credentials/
+
+# ============================================================
+# Python
+# ============================================================
+
+__pycache__/
+*.py[cod]
+*.pyd
+*.so
+
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+.venv/
+venv/
+env/
+
+dist/
+build/
+*.egg-info/
+
+# ============================================================
+# Node.js / React
+# ============================================================
+
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+coverage/
+.vite/
+.next/
+out/
+
+# ============================================================
+# Android / Gradle
+# ============================================================
+
+.gradle/
+**/build/
+local.properties
+
+*.apk
+*.aab
+*.ap_
+*.dex
+
+captures/
+.externalNativeBuild/
+.cxx/
+
+# ============================================================
+# iOS / Swift / Xcode
+# ============================================================
+
+.build/
+DerivedData/
+xcuserdata/
+*.xcuserstate
+*.xccheckout
+*.xcscmblueprint
+
+Pods/
+Carthage/Build/
+.swiftpm/
+
+# ============================================================
+# Java / Kotlin
+# ============================================================
+
+*.class
+*.jar
+*.war
+*.ear
+
+# ============================================================
+# IDEs and editors
+# ============================================================
+
+.idea/
+
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+!.vscode/launch.json
+!.vscode/tasks.json
+
+*.code-workspace
+
+# ============================================================
+# Operating systems
+# ============================================================
+
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ============================================================
+# Local databases and runtime data
+# ============================================================
+
+*.sqlite
+*.sqlite3
+*.db
+
+postgres-data/
+redis-data/
+docker-data/
+
+# ============================================================
+# Test artifacts and packet captures
+# ============================================================
+
+artifacts/
+captures/
+reports/generated/
+
+*.pcap
+*.pcapng
+*.cap
+
+# ============================================================
+# Logs
+# ============================================================
+
+*.log
+logs/
+
+# ============================================================
+# Temporary files
+# ============================================================
+
+tmp/
+temp/
+.cache/
+
+*.tmp
+*.temp
+*.bak
+*.swp
+*.swo
+*~
+
+# ============================================================
+# Packaging
+# ============================================================
+
+release/
+packages/
+installers/output/

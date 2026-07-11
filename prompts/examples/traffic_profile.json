@@ -1,0 +1,27 @@
+{
+  "schema_version": "2.0",
+  "profile_id": "tcp-downlink-4streams-30s",
+  "profile_version": 1,
+  "name": "TCP downlink - 4 streams - 30 s",
+  "generator": {
+    "capability": "traffic.tcp.throughput",
+    "preferred_provider": "iperf3",
+    "fallback_policy": "explicit_only"
+  },
+  "direction": "downlink",
+  "protocol": "tcp",
+  "duration_seconds": 30,
+  "parallel_streams": 4,
+  "warmup_seconds": 3,
+  "cooldown_seconds": 3,
+  "network": {
+    "ip_version": "any",
+    "dscp": null
+  },
+  "limits": {
+    "max_bitrate_bps": null
+  },
+  "thresholds": {
+    "min_average_bps": 500000000
+  }
+}
