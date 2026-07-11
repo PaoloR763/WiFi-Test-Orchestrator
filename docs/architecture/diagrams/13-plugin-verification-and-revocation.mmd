@@ -1,0 +1,18 @@
+%% WiFi Test Orchestrator architecture baseline 0.1.0
+sequenceDiagram
+    participant R as Plugin Registry
+    participant A as Agent
+    participant T as Local trust store
+    participant P as Plugin Runtime
+
+    R-->>A: Authorized manifest and plugin artifact reference
+    A->>A: Verify allowlist and expected hash
+    A->>T: Verify signer trust and revocation state
+    T-->>A: Trust decision
+    A->>A: Verify Plugin API compatibility and capabilities
+    A->>P: Activate only registered operations
+    P-->>A: Provider metadata and execution result
+
+    R-->>A: Revocation update
+    A->>T: Refresh revocation state
+    A->>P: Prevent new executions for revoked plugin

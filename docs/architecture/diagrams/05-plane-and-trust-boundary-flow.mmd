@@ -1,0 +1,37 @@
+%% WiFi Test Orchestrator architecture baseline 0.1.0
+flowchart LR
+    subgraph UserBoundary[User trust boundary]
+        Browser[Browser]
+    end
+
+    subgraph ServerBoundary[Server trust boundary]
+        Control[Control plane]
+        Telemetry[Telemetry plane]
+        Artifact[Artifact plane]
+        Integration[Integration plane]
+    end
+
+    subgraph AgentBoundary[Agent trust boundary]
+        Agent[Agent core]
+        Plugin[Verified plugin]
+    end
+
+    subgraph LabBoundary[Authorized lab boundary]
+        Data[Data plane]
+        Traffic[Traffic Node]
+        Capture[Capture Node]
+        Infra[Managed infrastructure]
+    end
+
+    Browser -->|Authenticated HTTPS| Control
+    Agent -->|Outbound HTTPS tasks and results| Control
+    Agent -->|Samples and events| Telemetry
+    Agent -->|Uploads with integrity metadata| Artifact
+    Control -->|Validated execution| Agent
+    Agent --> Plugin
+    Plugin -->|Reserved flow| Data
+    Data --> Traffic
+    Capture -->|Telemetry and PCAP metadata| Telemetry
+    Capture -->|Bounded artifacts| Artifact
+    Control -->|Allowlisted request| Integration
+    Integration -->|Authorized API or protocol| Infra

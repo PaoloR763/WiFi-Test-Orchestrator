@@ -1,0 +1,9 @@
+# Configuration prepared for a future Lychee run.
+# Lychee is not installed by Phase 01 and this file has not been tool-validated.
+offline = true
+include_fragments = true
+exclude_path = [
+  "docs/WiFi_Test_Orchestrator_Arquitectura_Desarrollo_Extensibilidad_v2.0.pdf",
+  "docs/WiFi_Test_Orchestrator_Arquitectura_Desarrollo_Extensibilidad_v2.0.docx",
+  "prompts"
+]

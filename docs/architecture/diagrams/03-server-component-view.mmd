@@ -1,0 +1,57 @@
+%% WiFi Test Orchestrator architecture baseline 0.1.0
+flowchart LR
+    API[API boundary]
+
+    subgraph Control[Control plane components]
+        Identity[Identity and RBAC]
+        Registry[Agent Registry]
+        Inventory[Inventory]
+        Matcher[Capability Matcher]
+        Campaign[Campaign Planner]
+        Tasks[Task Service]
+        Leases[Lease Service]
+        Reservations[Reservation Service]
+        Audit[Audit Service]
+    end
+
+    subgraph Execution[Execution and extension components]
+        Queue[Execution Queue]
+        Workers[Worker Interface]
+        Plugins[Plugin Registry]
+        Adapters[Infrastructure Adapter Registry]
+    end
+
+    subgraph Evidence[Telemetry and artifact components]
+        Telemetry[Telemetry Service]
+        Results[Result Service]
+        Artifacts[Artifact Service]
+    end
+
+    DB[(PostgreSQL)]
+    Coordination[(Redis)]
+    Blob[(Artifact store)]
+
+    API --> Identity
+    API --> Registry
+    API --> Inventory
+    API --> Campaign
+    Campaign --> Matcher
+    Matcher --> Registry
+    Campaign --> Tasks
+    Tasks --> Leases
+    Tasks --> Reservations
+    Tasks --> Queue
+    Queue --> Workers
+    Workers --> Plugins
+    Workers --> Adapters
+    Telemetry --> Results
+    Results --> Artifacts
+
+    Control --> DB
+    Execution --> DB
+    Evidence --> DB
+    Queue --> Coordination
+    Leases --> Coordination
+    Artifacts --> Blob
+    Control --> Audit
+    Execution --> Audit

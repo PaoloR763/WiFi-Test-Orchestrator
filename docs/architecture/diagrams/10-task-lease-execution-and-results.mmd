@@ -1,0 +1,25 @@
+%% WiFi Test Orchestrator architecture baseline 0.1.0
+sequenceDiagram
+    participant A as Agent
+    participant S as Task and Lease Service
+    participant Q as Persistent execution queue
+    participant P as Allowlisted provider
+    participant T as Telemetry Service
+    participant R as Result and Artifact Services
+
+    A->>S: Poll by outbound HTTPS
+    S->>Q: Find compatible non-expired work
+    Q-->>S: Candidate task
+    S-->>A: Immutable task plus lease
+    A->>A: Validate versions, capabilities, reservation and policy
+    A->>A: Persist acceptance and idempotency locally
+    A->>P: Execute registered action
+    loop While platform and lease permit
+        A->>S: Renew lease
+        A->>T: Send metric envelopes
+    end
+    P-->>A: Raw provider result
+    A->>R: Idempotent result and artifact metadata
+    R-->>A: Acknowledge persisted outcome
+    A->>S: Complete with current lease ownership
+    S->>Q: Mark terminal or recoverable state

@@ -1,0 +1,43 @@
+%% WiFi Test Orchestrator architecture baseline 0.1.0
+flowchart LR
+    Admin[Administrator]
+    Manager[Test Manager]
+    Operator[Operator]
+    Viewer[Viewer]
+
+    Platform[WiFi Test Orchestrator]
+
+    subgraph Agents[Authorized agents]
+        Win[Windows agent]
+        Linux[Linux agent]
+        Android[Android agent]
+        IOS[iOS agent]
+        Sim[Simulated agent]
+    end
+
+    subgraph Lab[Authorized laboratory]
+        Traffic[Traffic Nodes]
+        Capture[Capture Nodes]
+        Infra[APs, gateways, ONTs and controllers]
+    end
+
+    Push[FCM and APNs notifications]
+
+    Admin -->|HTTPS and RBAC| Platform
+    Manager -->|HTTPS and RBAC| Platform
+    Operator -->|HTTPS and RBAC| Platform
+    Viewer -->|HTTPS and RBAC| Platform
+
+    Win -->|Outbound HTTPS| Platform
+    Linux -->|Outbound HTTPS| Platform
+    Android -->|Outbound HTTPS| Platform
+    IOS -->|Outbound HTTPS| Platform
+    Sim -->|Outbound HTTPS| Platform
+
+    Platform -->|Authorized reservations| Traffic
+    Agents -->|Reserved test traffic| Traffic
+    Capture -->|Telemetry and artifacts| Platform
+    Platform -->|Allowlisted operations| Infra
+    Push -->|Notification only| Android
+    Push -->|Notification only| IOS
+    Platform -->|No task payload| Push

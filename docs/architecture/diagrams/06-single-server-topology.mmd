@@ -1,0 +1,26 @@
+%% WiFi Test Orchestrator architecture baseline 0.1.0
+flowchart TB
+    subgraph WindowsHost[Windows 11 development host]
+        subgraph LinuxOCI[Docker Desktop and WSL2 - Linux OCI]
+            Web[Web]
+            API[API]
+            Worker[Worker]
+            DB[(PostgreSQL)]
+            Redis[(Redis)]
+            Artifacts[(Local artifact store)]
+            Traffic[Test traffic service]
+        end
+    end
+
+    Agents[Authorized agents]
+    User[Authorized user]
+
+    User -->|HTTPS| Web
+    Web --> API
+    Agents -->|Outbound HTTPS| API
+    API --> DB
+    API --> Redis
+    Redis --> Worker
+    Worker --> DB
+    Worker --> Artifacts
+    Agents -->|Reserved lab traffic| Traffic
