@@ -2,6 +2,8 @@
 
 Para Fase 03 consulte también
 [`docs/phase03/migrations-and-rollback.md`](phase03/migrations-and-rollback.md).
+Para Fase 04 consulte
+[`docs/phase04/operations.md`](phase04/operations.md).
 El rollback de aplicación debe conservar inicialmente el schema aditivo. El
 downgrade a la baseline vacía destruye usuarios, sesiones y auditoría.
 

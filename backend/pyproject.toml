@@ -6,6 +6,7 @@ requires-python = ">=3.12"
 [tool.black]
 line-length = 100
 target-version = ["py312"]
+extend-exclude = "^/migrations/versions/(20260711_0001_phase02_baseline|20260712_0002_phase03_identity_rbac_auth|20260712_0003_phase03_domain_skeletons)[.]py$"
 
 [tool.ruff]
 line-length = 100
@@ -27,6 +28,10 @@ mypy_path = "src"
 
 [[tool.mypy.overrides]]
 module = ["celery", "celery.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["jsonschema", "jsonschema.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

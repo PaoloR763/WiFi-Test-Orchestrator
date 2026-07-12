@@ -1,14 +1,24 @@
 from __future__ import annotations
 
+import json
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
+from typing import cast
 
 from fastapi import FastAPI
 
+from wto_backend.api.body_limits import BodySizeLimitMiddleware
 from wto_backend.api.errors import install_error_handlers
 from wto_backend.api.routers.admin import router as admin_router
+from wto_backend.api.routers.agent_protocol import (
+    internal_router as internal_agent_router,
+)
+from wto_backend.api.routers.agent_protocol import router as agent_protocol_router
+from wto_backend.api.routers.agents import router as agents_router
 from wto_backend.api.routers.audit import router as audit_router
 from wto_backend.api.routers.auth import router as auth_router
+from wto_backend.api.routers.enrollment import router as enrollment_router
 from wto_backend.api.routers.rbac import router as rbac_router
 from wto_backend.config import Settings, get_settings
 from wto_backend.correlation import CorrelationIdMiddleware
@@ -18,6 +28,7 @@ from wto_backend.dependencies import RuntimeDependencies
 from wto_backend.health import HealthService
 from wto_backend.health import router as health_router
 from wto_backend.logging import configure_logging
+from wto_backend.security.agent_replay import AgentReplayGuard
 from wto_backend.security.passwords import PasswordManager
 from wto_backend.security.rate_limit import LoginRateLimiter
 from wto_backend.security.tokens import TokenManager
@@ -84,6 +95,18 @@ def create_app(
         identifier_limit=resolved_settings.login_identifier_limit,
         window_seconds=resolved_settings.login_rate_window_seconds,
     )
+    app.state.enrollment_rate_limiter = LoginRateLimiter(
+        runtime_dependencies.redis_client,
+        ip_limit=30,
+        identifier_limit=10,
+        window_seconds=900,
+    )
+    app.state.agent_replay_guard = AgentReplayGuard(
+        runtime_dependencies.redis_client,
+        nonce_ttl=resolved_settings.agent_nonce_ttl_seconds,
+        request_limit=resolved_settings.agent_request_limit,
+    )
+    app.add_middleware(BodySizeLimitMiddleware)
     app.add_middleware(CorrelationIdMiddleware)
     install_error_handlers(app)
     app.include_router(health_router)
@@ -92,6 +115,22 @@ def create_app(
     app.include_router(admin_router, prefix=internal_prefix)
     app.include_router(rbac_router, prefix=internal_prefix)
     app.include_router(audit_router, prefix=internal_prefix)
+    public_prefix = "/api/v1"
+    app.include_router(enrollment_router, prefix=public_prefix)
+    app.include_router(agents_router, prefix=public_prefix)
+    app.include_router(agent_protocol_router, prefix=public_prefix)
+    app.include_router(internal_agent_router, prefix=internal_prefix)
+
+    bundled_openapi = Path(__file__).with_name("contract_data") / "openapi-bundled.json"
+    if bundled_openapi.exists():
+        canonical_document = cast(
+            dict[str, object], json.loads(bundled_openapi.read_text(encoding="utf-8"))
+        )
+
+        def canonical_openapi() -> dict[str, object]:
+            return canonical_document
+
+        app.openapi = canonical_openapi  # type: ignore[method-assign]
 
     if resolved_settings.demo_enabled:
         app.state.demo_agent_store = demo_agent_store or DemoAgentStore(

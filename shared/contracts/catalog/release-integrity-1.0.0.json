@@ -1,0 +1,24 @@
+{
+  "schema_version": "1.0.0",
+  "algorithm": "sha256",
+  "files": {
+    "catalog/capabilities-1.0.0.json": "90b9d670170f26f4c15e4069088e3f4f0eb56ffed981000206e6bfbd056e0750",
+    "catalog/protocol-compatibility-1.0.0.json": "ea3f689d0b71d759095ddd651219f622a2bfd2f47d83b66813503f061223974b",
+    "examples/manifest.json": "96e9386712d811a31b672d1c36e1238afaf431e6e21b78cacccab455a8e82622",
+    "openapi/openapi.json": "1a68a2baa9a8d48311f7a84873eab2ca4e3e995e7be903b2c06b97bd8a806872",
+    "schemas/agent-credential.schema.json": "b1a7df4a593bbbc626ef834d2c4f2eeae06d67b83bb69942f8e35dc090f82d8d",
+    "schemas/agent-registration-request.schema.json": "923985c9d398d19a7c08dedad08d497b7cea19935113bb1a86aa8cf151634a1b",
+    "schemas/agent-registration-response.schema.json": "4aeb7cc30930cbd99384305b8dd7a6c85f66f1ef0984da067e3aa48a3b456d0e",
+    "schemas/artifact-manifest.schema.json": "8435a7813d5912f37cdf03c7e861ea4a5c03376a18f3457e4849797b6dff2b68",
+    "schemas/capability-manifest.schema.json": "5af06c3b1171a4ec6fbc1319c9be1c47a660837c57286dd729eea7dcd22bef0f",
+    "schemas/common.schema.json": "142669e822b588098f7ba38adc3d563a87ba4737e6695b67d22614b9dad4f409",
+    "schemas/desktop-heartbeat.schema.json": "23494a690a578ef5d501fd68baa55d50901dd5ab59f2670af3ce741bb252e363",
+    "schemas/error-envelope.schema.json": "8d6f33254c5ba5911daac91e8cf5094e6a2e966ac4d6b09848f25d73ae808f70",
+    "schemas/metric.schema.json": "2f1b2407df857e87d4fd837c9b672ea35b03ae96a7e21f229d7371a98a7025a5",
+    "schemas/mobile-presence.schema.json": "c1250263d13daf965ab5cf13632626c35e3a8b393f5087cf6691e8ab4ca039a2",
+    "schemas/progress-event.schema.json": "d76f0e8b8414ea052a455e030a8b7773e35d3338287d047678a4d073825ffd14",
+    "schemas/reason.schema.json": "80555912434c5f93fc9d2b5eb3128a5471e6b58cf8eb201d7c630ad60751c87f",
+    "schemas/task-envelope.schema.json": "b323a78f336f62b8b8d60fd7ebd99f39430243b25501d04a60d5cd55e1e45fd5",
+    "schemas/test-result.schema.json": "195b8c4a9e40c00b5d0cf2e2c070f84ab9307dd2172b4de58b7e81c9c368ba45"
+  }
+}

@@ -10,12 +10,12 @@ RUN groupadd --gid 10001 wto \
 
 WORKDIR /app
 
-COPY requirements.lock ./
+COPY backend/requirements.lock ./
 RUN python -m pip install --no-cache-dir --requirement requirements.lock
 
-COPY alembic.ini ./
-COPY migrations ./migrations
-COPY src ./src
+COPY backend/alembic.ini ./
+COPY backend/migrations ./migrations
+COPY backend/src ./src
 
 RUN mkdir -p /var/lib/wto/artifacts \
     && chown -R wto:wto /app /var/lib/wto
@@ -26,9 +26,11 @@ FROM base AS runtime
 
 FROM base AS test
 USER root
-COPY requirements-dev.lock ./
+COPY backend/requirements-dev.lock ./
 RUN python -m pip install --no-cache-dir --requirement requirements-dev.lock
-COPY pyproject.toml ./
-COPY tests ./tests
+COPY backend/pyproject.toml ./
+COPY backend/tests ./tests
+COPY scripts ./scripts
+COPY shared ./shared
 RUN chown -R wto:wto /app
 USER wto

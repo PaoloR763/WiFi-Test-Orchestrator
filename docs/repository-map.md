@@ -7,12 +7,13 @@
 | `agents/simulated/` | Proceso outbound-only para smoke tests |
 | `agents/` | Límite futuro de agentes desktop |
 | `mobile/` | Límite reservado para Android e iOS |
-| `shared/` | Límite reservado para contratos de Fase 04 |
+| `shared/contracts/` | Schemas, OpenAPI, catálogos, golden fixtures y consumidores normativos |
 | `integrations/` | Límite reservado para adapters externos |
 | `deployment/proxy/` | Reverse proxy Nginx no privilegiado |
 | `docs/architecture/` | Arquitectura aprobada; no se redefine en Fase 02 |
 | `docs/` | Guías operativas y de desarrollo |
 | `docs/phase03/` | ERD, seguridad, RBAC, auditoría y migraciones de Fase 03 |
+| `docs/phase04/` | Protocolo, capabilities, enrolamiento, idempotencia y runbooks de Fase 04 |
 | `tests/compose/` | Política estática de Compose |
 | `scripts/` | Operación, smoke y guardrails del repositorio |
 | `.github/workflows/` | CI Linux basada en contenedores |

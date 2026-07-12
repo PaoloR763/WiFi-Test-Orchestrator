@@ -1,4 +1,4 @@
-# Desarrollo local de la Fase 03
+# Desarrollo local de la Fase 04
 
 ## Requisitos
 
@@ -50,8 +50,21 @@ sh scripts/dev.sh reset --confirm
 ## Configuración
 
 `.env.example` es una plantilla no utilizable. Los scripts `generate-env`
-crean `.env` ignorado con passwords PostgreSQL y tres claves independientes:
-JWT, HMAC de rate limit y HMAC de auditoría. Compose usa `.env`.
+crean `.env` ignorado con passwords PostgreSQL y claves independientes. Para
+actualizar un `.env` de Fase 03 sin rotar valores existentes, agregue únicamente
+las tres claves nuevas de Fase 04 con una de estas operaciones idempotentes:
+
+```powershell
+./scripts/generate-env.ps1 --add-missing
+```
+
+```sh
+sh scripts/generate-env.sh --add-missing
+```
+
+El upgrade preserva los bytes existentes, no muestra secretos y usa el CSPRNG
+de Python para cada valor faltante. `--force` continúa siendo una operación
+destructiva separada que regenera todo el archivo. Compose usa `.env`.
 
 Variables principales:
 
@@ -66,6 +79,9 @@ Variables principales:
 | `WTO_JWT_SIGNING_KEY` | Firma JWT; mínimo 256 bits |
 | `WTO_RATE_LIMIT_HMAC_KEY` | Fingerprints efímeros de rate limit |
 | `WTO_AUDIT_SUBJECT_HMAC_KEY` | Fingerprints persistidos en auditoría |
+| `WTO_ENROLLMENT_TOKEN_HMAC_KEY` | HMAC exclusivo de EnrollmentToken |
+| `WTO_AGENT_CREDENTIAL_HMAC_KEY` | HMAC exclusivo de AgentCredential |
+| `WTO_SECRET_REPLAY_ENCRYPTION_KEY` | AEAD de replay secreto por 15 minutos |
 | `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD` | PostgreSQL local |
 | `SIM_AGENT_ID`, `SIM_AGENT_DISPLAY_NAME` | Identidad sólo para el simulador |
 | `SIM_HEARTBEAT_INTERVAL_SECONDS` | Cadencia de presencia demo |
@@ -85,8 +101,23 @@ PowerShell, Bash y Make ofrecen `build`, `lint`, `format-check`, `typecheck`,
 sh scripts/dev.sh validate
 ```
 
+Los cuatro consumidores contractuales pueden ejecutarse de forma explícita:
+
+```powershell
+./scripts/dev.ps1 contracts
+```
+
+```sh
+sh scripts/dev.sh contracts
+```
+
 Los servicios de herramientas pertenecen al profile opcional `tools`; el
 entorno funcional normal no necesita activar profiles.
+
+Black 25.1.0 toma su configuración central de `backend/pyproject.toml`. Las
+migraciones publicadas `20260711_0001`, `20260712_0002` y `20260712_0003` están
+excluidas del reformateo; `migrations/env.py`, `20260712_0004`, `src` y `tests`
+continúan bajo validación.
 
 ## Bootstrap
 
@@ -101,4 +132,7 @@ El prompt de contraseña es oculto y el administrador debe rotarla al ingresar.
 
 El deployment local usa HTTP dentro de un host de desarrollo. TLS sigue siendo
 obligatorio antes de cualquier despliegue compartido. El simulated-agent no
-escucha puertos y sus endpoints demo no son enrolamiento ni inventario normativo.
+escucha puertos; smoke crea un token efímero, enrola, rota y envía heartbeat
+normativo sin registrar secretos. Smoke usa un project name explícito y, aun
+ante errores, elimina sus contenedores, redes y volúmenes, restaura el entorno
+de la sesión y falla si detecta recursos residuales por label de Compose.

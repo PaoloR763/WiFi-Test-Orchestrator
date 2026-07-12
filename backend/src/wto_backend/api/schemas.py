@@ -76,6 +76,7 @@ class AuditView(BaseModel):
     id: UUID
     actor_type: str
     actor_id: UUID | None
+    actor_agent_id: UUID | None
     action: str
     resource_type: str
     resource_id: UUID | None

@@ -1,0 +1,13 @@
+{
+  "schema_version": "1.0.0",
+  "agent_id": "20000000-0000-4000-8000-000000000006",
+  "boot_id": "30000000-0000-4000-8000-000000000003",
+  "sequence": 2,
+  "agent_version": "0.1.0",
+  "protocol_version": "1.0.0",
+  "agent_reported_at": "2026-07-12T12:00:00Z",
+  "lifecycle": "foreground",
+  "reason": null,
+  "manifest_id": "30000000-0000-4000-8000-000000000004",
+  "manifest_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+}

@@ -13,8 +13,10 @@ correlation_id_context: contextvars.ContextVar[str | None] = contextvars.Context
 )
 
 _SECRET_PATTERN = re.compile(
-    r"(?i)\b(password(?:_hash)?|passwd|(?:refresh_)?token(?:_digest)?|cookie|secret|"
-    r"authorization|dsn|signing_key|hmac_key)\b\s*[:=]\s*([^\s,;]+)"
+    r"(?i)\b(password(?:_hash)?|passwd|(?:[a-z0-9_]*token)(?:_digest)?|cookie|"
+    r"(?:[a-z0-9_]*credential)|ciphertext|nonce|secret|authorization|dsn|"
+    r"(?:[a-z0-9_]*signing_key)|(?:[a-z0-9_]*hmac_key)|"
+    r"(?:[a-z0-9_]*encryption_key))\b\s*[:=]\s*([^\s,;]+)"
 )
 
 

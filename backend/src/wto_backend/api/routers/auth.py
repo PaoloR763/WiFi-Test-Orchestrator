@@ -11,7 +11,12 @@ from wto_backend.api.dependencies import (
     get_settings_from_app,
     require_cookie_origin,
 )
-from wto_backend.api.schemas import LoginRequest, PasswordChangeRequest, TokenResponse, UserView
+from wto_backend.api.schemas import (
+    LoginRequest,
+    PasswordChangeRequest,
+    TokenResponse,
+    UserView,
+)
 from wto_backend.config import Settings
 from wto_backend.domain.models import User
 from wto_backend.logging import correlation_id_context
@@ -119,7 +124,8 @@ def refresh(
         raise InvalidSessionError
     try:
         access, replacement, user = auth.refresh(
-            token=refresh_token, correlation_id=correlation_id_context.get() or "unavailable"
+            token=refresh_token,
+            correlation_id=correlation_id_context.get() or "unavailable",
         )
     except InvalidSessionError:
         clear_refresh_cookie(response, settings)
@@ -169,7 +175,9 @@ def logout_all(
 
 
 @router.get("/me", response_model=UserView)
-def me(principal: Annotated[tuple[User, AccessClaims], Depends(current_principal)]) -> UserView:
+def me(
+    principal: Annotated[tuple[User, AccessClaims], Depends(current_principal)],
+) -> UserView:
     return user_view(principal[0])
 
 

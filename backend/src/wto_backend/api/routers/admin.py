@@ -9,7 +9,12 @@ from sqlalchemy.orm import Session, selectinload
 
 from wto_backend.api.dependencies import get_session, require_permissions
 from wto_backend.api.routers.auth import user_view
-from wto_backend.api.schemas import UserCreateRequest, UserList, UserUpdateRequest, UserView
+from wto_backend.api.schemas import (
+    UserCreateRequest,
+    UserList,
+    UserUpdateRequest,
+    UserView,
+)
 from wto_backend.domain.models import User
 from wto_backend.logging import correlation_id_context
 from wto_backend.services.errors import ConflictError

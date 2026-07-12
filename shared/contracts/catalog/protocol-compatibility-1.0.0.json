@@ -1,0 +1,7 @@
+{
+  "schema_version": "1.0.0",
+  "agent_protocol_version": "1.0.0",
+  "minimum_agent_protocol_version": "1.0.0",
+  "maximum_agent_protocol_version": "1.0.0",
+  "capability_catalog_versions": ["1.0.0"]
+}

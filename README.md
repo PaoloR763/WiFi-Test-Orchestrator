@@ -5,11 +5,12 @@ pruebas Wi-Fi en laboratorios, pilotos y redes autorizadas.
 
 ## Estado del proyecto
 
-El proyecto se encuentra en la Fase 03. Incluye un entorno local ejecutable con
+El proyecto se encuentra en la Fase 04. Incluye un entorno local ejecutable con
 reverse proxy, frontend, backend, worker, PostgreSQL, Redis, artifact store
 filesystem, agente simulado outbound-only, autenticación local, sesiones con
 rotación, RBAC humano y auditoría append-only para aplicación/rol runtime. Los
-contratos normativos permanecen diferidos a Fase 04.
+contratos OpenAPI/JSON Schema normativos, enrolamiento individual, rotación y
+revocación de credentials, capability manifests y presence desktop/mobile.
 
 Baselines aprobados:
 
@@ -82,6 +83,9 @@ Antes del primer inicio genere secretos locales:
 ```
 
 La referencia de identidad está en [docs/phase03](docs/phase03/README.md).
+
+La referencia normativa de Fase 04 está en
+[docs/phase04](docs/phase04/README.md).
 
 ## Agentes y capabilities
 

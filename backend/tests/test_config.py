@@ -21,3 +21,10 @@ def test_configuration_rejects_unknown_environment(
 ) -> None:
     with pytest.raises(ValidationError):
         settings_factory(environment="staging")
+
+
+def test_phase04_security_keys_are_independent(
+    settings_factory: Callable[..., Settings],
+) -> None:
+    with pytest.raises(ValidationError):
+        settings_factory(enrollment_token_hmac_key="j" * 48)

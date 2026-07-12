@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import hashlib
 import re
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -46,6 +49,25 @@ FORBIDDEN_CAPABILITY_IDS = [
     "replay.pcap",
     "execution.background_continuous",
 ]
+EXPECTED_CONTRACT_SCHEMAS = {
+    "agent-credential.schema.json",
+    "agent-registration-request.schema.json",
+    "agent-registration-response.schema.json",
+    "artifact-manifest.schema.json",
+    "capability-manifest.schema.json",
+    "common.schema.json",
+    "desktop-heartbeat.schema.json",
+    "error-envelope.schema.json",
+    "metric.schema.json",
+    "mobile-presence.schema.json",
+    "progress-event.schema.json",
+    "reason.schema.json",
+    "task-envelope.schema.json",
+    "test-result.schema.json",
+}
+GRADLE_WRAPPER_JAR = Path("shared/contracts/consumers/kotlin/gradle/wrapper/gradle-wrapper.jar")
+GRADLE_WRAPPER_JAR_SHA256 = "7d3a4ac4de1c32b59bc6a4eb8ecb8e612ccd0cf1ae1e99f66902da64df296172"
+GRADLE_DISTRIBUTION_SHA256 = "7197a12f450794931532469d4ff21a59ea2c1cd59a3ec3f89c035c3c420a6999"
 
 
 def files_to_scan() -> list[Path]:
@@ -64,26 +86,87 @@ def files_to_scan() -> list[Path]:
     return files
 
 
+def validate_contract_inventory(failures: list[str]) -> None:
+    canonical = ROOT / "shared" / "contracts" / "schemas"
+    packaged = ROOT / "backend" / "src" / "wto_backend" / "contract_data" / "schemas"
+    canonical_names = {path.name for path in canonical.glob("*.schema.json")}
+    packaged_names = {path.name for path in packaged.glob("*.schema.json")}
+    if canonical_names != EXPECTED_CONTRACT_SCHEMAS:
+        failures.append("shared/contracts/schemas: expected exact Phase 04 inventory of 14 schemas")
+    if packaged_names != canonical_names:
+        failures.append("backend contract_data schema inventory differs from canonical source")
+    for name in canonical_names & packaged_names:
+        if (canonical / name).read_bytes() != (packaged / name).read_bytes():
+            failures.append(f"backend contract_data schema differs byte-for-byte: {name}")
+
+
+def validate_gradle_wrapper(failures: list[str]) -> None:
+    wrapper = ROOT / GRADLE_WRAPPER_JAR
+    if not wrapper.is_file():
+        failures.append(f"{GRADLE_WRAPPER_JAR.as_posix()}: Gradle wrapper JAR missing")
+        return
+    actual_hash = hashlib.sha256(wrapper.read_bytes()).hexdigest()
+    if actual_hash != GRADLE_WRAPPER_JAR_SHA256:
+        failures.append(f"{GRADLE_WRAPPER_JAR.as_posix()}: unexpected SHA-256")
+
+    properties = wrapper.with_name("gradle-wrapper.properties").read_text(encoding="utf-8")
+    if f"distributionSha256Sum={GRADLE_DISTRIBUTION_SHA256}" not in properties.splitlines():
+        failures.append("gradle-wrapper.properties: distributionSha256Sum missing or changed")
+
+    git = shutil.which("git")
+    if git is None:
+        failures.append("Git executable not found; cannot validate Gradle wrapper inclusion")
+        return
+
+    relative = GRADLE_WRAPPER_JAR.as_posix()
+    ignored = subprocess.run(  # noqa: S603 - executable and arguments are fixed by the repository
+        [git, "check-ignore", "--no-index", "--quiet", "--", relative],
+        cwd=ROOT,
+        check=False,
+    )
+    if ignored.returncode == 0:
+        failures.append(f"{relative}: ignored by Git")
+    elif ignored.returncode != 1:
+        failures.append(f"{relative}: unable to determine Git ignore state")
+
+    candidates = (
+        subprocess.run(  # noqa: S603 - executable and arguments are fixed by the repository
+            [git, "ls-files", "--cached", "--others", "--exclude-standard", "--", relative],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    )
+    included = {line.strip().replace("\\", "/") for line in candidates.stdout.splitlines()}
+    if candidates.returncode != 0 or relative not in included:
+        failures.append(f"{relative}: not included by Git as tracked or untracked candidate")
+
+
 def main() -> None:
     failures: list[str] = []
     windows_path = re.compile(r"(?<![A-Za-z])[A-Za-z]:[\\/]")
     real_availability_reason = re.compile(r"[\"']availability_reason[\"']\s*[:=]")
     aggregate_support = re.compile(r"[\"']support[\"']\s*[:=]")
     hardcoded_dsn = re.compile(r"(?i)(postgres(?:ql)?|redis)://[^\s:@]+:[^\s@]+@")
-    hardcoded_secret = re.compile(
-        r"(?i)\b(password|token|secret)\b\s*[:=]\s*[\"'][^\"']{8,}[\"']"
-    )
+    hardcoded_secret = re.compile(r"(?i)\b(password|token|secret)\b\s*[:=]\s*[\"'][^\"']{8,}[\"']")
+
+    validate_contract_inventory(failures)
+    validate_gradle_wrapper(failures)
 
     for path in files_to_scan():
         content = path.read_text(encoding="utf-8")
         relative = path.relative_to(ROOT).as_posix()
+        negative_contract_fixture = relative.startswith(
+            "shared/contracts/examples/invalid/"
+        ) or relative.startswith("backend/src/wto_backend/contract_data/examples/invalid/")
         if windows_path.search(content):
             failures.append(f"{relative}: absolute Windows path")
         if real_availability_reason.search(content):
             failures.append(f"{relative}: availability reason used as a real field")
         if aggregate_support.search(content):
             failures.append(f"{relative}: aggregate support field")
-        for capability_id in FORBIDDEN_CAPABILITY_IDS:
+        for capability_id in () if negative_contract_fixture else FORBIDDEN_CAPABILITY_IDS:
             capability_pattern = re.compile(
                 rf"(?<![A-Za-z0-9._-]){re.escape(capability_id)}(?![A-Za-z0-9._-])"
             )

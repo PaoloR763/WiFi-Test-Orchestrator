@@ -46,7 +46,10 @@ class TokenManager:
             "auth_version": auth_version,
         }
         return jwt.encode(
-            payload, self._signing_key, algorithm=self.algorithm, headers={"typ": "at+jwt"}
+            payload,
+            self._signing_key,
+            algorithm=self.algorithm,
+            headers={"typ": "at+jwt"},
         )
 
     def decode_access(self, token: str) -> AccessClaims:
