@@ -5,9 +5,10 @@ pruebas Wi-Fi en laboratorios, pilotos y redes autorizadas.
 
 ## Estado del proyecto
 
-El proyecto se encuentra en la Fase 01: arquitectura, ADRs y modelo de
-amenazas. El producto inicial tendrá versión `0.1.0`, pero todavía no existe
-una implementación funcional ni una release publicada.
+El proyecto se encuentra en la Fase 02. Incluye un entorno local ejecutable con
+reverse proxy, frontend, backend, worker, PostgreSQL, Redis, artifact store
+filesystem y un agente simulado outbound-only. El dominio definitivo, la
+autenticación y los contratos normativos permanecen diferidos.
 
 Baselines aprobados:
 
@@ -62,6 +63,17 @@ dependerán funcionalmente de rutas, servicios ni APIs del host Windows.
 La portabilidad futura incluye Linux, macOS y entornos cloud sin cambiar el
 dominio ni los contratos.
 
+El entorno mínimo se inicia sin profiles adicionales:
+
+```sh
+docker compose up -d --wait
+```
+
+La UI queda en `http://localhost:8080`. Consulte la
+[guía de desarrollo](docs/development.md), el
+[mapa del repositorio](docs/repository-map.md),
+[troubleshooting](docs/troubleshooting.md) y [rollback](docs/rollback.md).
+
 ## Agentes y capabilities
 
 La arquitectura contempla Windows, Linux, Android e iOS. Cada agente publicará
@@ -105,7 +117,7 @@ autorizado mediante una reserva emitida por el servidor. Un límite solicitado
   threat model y capability matrix.
 - `prompts/`: prompts de desarrollo divididos por fases y ejemplos
   ilustrativos no normativos.
-- `scripts/`: futuros scripts de desarrollo y mantenimiento.
+- `scripts/`: scripts equivalentes de desarrollo, validación y mantenimiento.
 - `AGENTS.md`: reglas permanentes y autoridad normativa global.
 - `CHANGELOG.md`: cambios del producto.
 
