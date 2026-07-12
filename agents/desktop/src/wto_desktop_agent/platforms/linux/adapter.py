@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import os
 import platform
+from collections.abc import Callable
 from pathlib import Path
+from typing import cast
 
 from wto_desktop_agent.domain.errors import SecureStoreUnavailableError
 from wto_desktop_agent.domain.models import DoctorCheck
@@ -13,6 +15,11 @@ from wto_desktop_agent.platforms.common import (
     UnsupportedWifiCollector,
 )
 from wto_desktop_agent.ports.platform import SecretStore
+
+_GET_EFFECTIVE_USER_ID = cast(
+    Callable[[], int] | None,
+    getattr(os, "geteuid", None),
+)
 
 
 class UnavailableLinuxSecretStore:
@@ -65,7 +72,7 @@ class LinuxPlatformAdapter:
 
     @property
     def default_state_dir(self) -> Path:
-        if os.geteuid() == 0:
+        if _GET_EFFECTIVE_USER_ID is not None and _GET_EFFECTIVE_USER_ID() == 0:
             return Path("/var/lib/wto-agent")
         return Path.home() / ".local" / "state" / "wto-agent"
 

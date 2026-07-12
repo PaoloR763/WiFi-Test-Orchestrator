@@ -42,7 +42,8 @@ class LinuxSecretServiceStore:
         item = next(self._collection.search_items(self._attributes(key)), None)
         if item is None:
             return None
-        return item.get_secret().decode("utf-8")
+        secret = bytes(item.get_secret())
+        return secret.decode("utf-8")
 
     def delete(self, key: str) -> None:
         for item in self._collection.search_items(self._attributes(key)):

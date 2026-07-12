@@ -88,6 +88,8 @@ jobs:
           docker run --rm --workdir /workspace/agents/desktop wto-desktop-agent-test ruff check src tests
           docker run --rm --workdir /workspace/agents/desktop wto-desktop-agent-test black --check src tests
           docker run --rm --workdir /workspace/agents/desktop wto-desktop-agent-test mypy src
+          docker run --rm --workdir /workspace/agents/desktop wto-desktop-agent-test mypy --platform linux src
+          docker run --rm --workdir /workspace/agents/desktop wto-desktop-agent-test mypy --platform win32 src
           docker run --rm --workdir /workspace/agents/desktop wto-desktop-agent-test pytest tests --cov=wto_desktop_agent --cov-report=term-missing
           docker run --rm wto-desktop-agent-test python scripts/test_desktop_wheel.py
 
@@ -116,6 +118,8 @@ jobs:
           ruff check src tests
           black --check src tests
           mypy src
+          mypy --platform linux src
+          mypy --platform win32 src
       - name: Native Windows adapter and security tests
         working-directory: agents/desktop
         run: pytest tests/windows -m windows -vv

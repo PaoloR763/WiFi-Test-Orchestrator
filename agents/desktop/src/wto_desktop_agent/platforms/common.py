@@ -5,6 +5,7 @@ import os
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from typing import cast
 
 from pydantic import BaseModel
 
@@ -12,6 +13,11 @@ from wto_desktop_agent.domain.errors import PluginUnavailableError
 from wto_desktop_agent.domain.models import DoctorCheck
 from wto_desktop_agent.ports.platform import CommandRequest, ProcessResult, SecretStore
 from wto_desktop_agent.ports.plugins import CancellationToken
+
+_KILL_PROCESS_GROUP = cast(
+    Callable[[int, int], None] | None,
+    getattr(os, "killpg", None),
+)
 
 
 class UnsupportedWifiCollector:
@@ -148,12 +154,15 @@ class LinuxProcessRunner(AllowlistedProcessRunner):
         )
 
     async def terminate(self, process: asyncio.subprocess.Process) -> None:
+        if _KILL_PROCESS_GROUP is None:
+            await super().terminate(process)
+            return
         try:
-            os.killpg(process.pid, 15)
+            _KILL_PROCESS_GROUP(process.pid, 15)
             await asyncio.wait_for(process.wait(), timeout=2.0)
         except (ProcessLookupError, TimeoutError):
             try:
-                os.killpg(process.pid, 9)
+                _KILL_PROCESS_GROUP(process.pid, 9)
             except ProcessLookupError:
                 pass
             await process.wait()
