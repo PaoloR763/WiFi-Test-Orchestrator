@@ -33,6 +33,8 @@ class CorrelationIdMiddleware(BaseHTTPMiddleware):
                             "message": (
                                 "X-Correlation-ID must match " "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
                             ),
+                            "details": None,
+                            "correlation_id": safe_id,
                         }
                     },
                     headers={CORRELATION_HEADER: safe_id},

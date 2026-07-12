@@ -13,6 +13,7 @@ SCAN_ROOTS = [
     ROOT / "integrations",
     ROOT / "mobile",
     ROOT / "shared",
+    ROOT / "scripts",
     ROOT / "tests",
 ]
 ROOT_FILES = [ROOT / "compose.yaml", ROOT / "Makefile"]
@@ -55,6 +56,7 @@ def files_to_scan() -> list[Path]:
                 path
                 for path in scan_root.rglob("*")
                 if path.is_file()
+                and path != Path(__file__).resolve()
                 and (path.suffix in TEXT_SUFFIXES or path.name in {"Dockerfile"})
                 and "node_modules" not in path.parts
                 and "dist" not in path.parts

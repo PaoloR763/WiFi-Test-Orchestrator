@@ -1,11 +1,21 @@
 $ErrorActionPreference = 'Stop'
 $env:COMPOSE_PROJECT_NAME = "wto-smoke-$PID"
 if (-not $env:WTO_SMOKE_PORT) { $env:WTO_HTTP_PORT = '18080' } else { $env:WTO_HTTP_PORT = $env:WTO_SMOKE_PORT }
+$baseUrl = "http://127.0.0.1:$($env:WTO_HTTP_PORT)"
+$env:WTO_ALLOWED_ORIGIN = $baseUrl
+$randomBytes = New-Object byte[] 24
+$randomGenerator = [Security.Cryptography.RandomNumberGenerator]::Create()
+$randomGenerator.GetBytes($randomBytes)
+$randomGenerator.Dispose()
+$adminPassword = 'Smoke-' + [Convert]::ToBase64String($randomBytes)
 
 try {
     docker compose up -d --build --wait
     if ($LASTEXITCODE -ne 0) { throw 'Compose startup failed' }
-    $baseUrl = "http://127.0.0.1:$($env:WTO_HTTP_PORT)"
+    docker compose exec -T backend python -m wto_backend.cli seed-rbac
+    if ($LASTEXITCODE -ne 0) { throw 'RBAC seed failed' }
+    $adminPassword | docker compose exec -T backend python -m wto_backend.cli bootstrap-admin --username smoke-admin --password-stdin
+    if ($LASTEXITCODE -ne 0) { throw 'Admin bootstrap failed' }
     $live = Invoke-RestMethod "$baseUrl/health/live"
     if ($live.status -ne 'alive') { throw 'Liveness response was unexpected' }
     $ready = Invoke-RestMethod "$baseUrl/health/ready"
@@ -19,6 +29,13 @@ try {
     if ($openapi.paths.PSObject.Properties.Name -match '^/demo/') {
         throw 'Demo endpoints must not appear in OpenAPI'
     }
+    $webSession = New-Object Microsoft.PowerShell.Commands.WebRequestSession
+    $login = Invoke-RestMethod "$baseUrl/api/internal/v1/auth/login" -Method Post -WebSession $webSession -ContentType 'application/json' -Body (@{ username = 'smoke-admin'; password = $adminPassword } | ConvertTo-Json)
+    $protected = Invoke-RestMethod "$baseUrl/api/internal/v1/admin/protected" -Headers @{ Authorization = "Bearer $($login.access_token)" }
+    if ($protected.status -ne 'authorized') { throw 'RBAC protected endpoint failed' }
+    $refresh = Invoke-RestMethod "$baseUrl/api/internal/v1/auth/refresh" -Method Post -WebSession $webSession -Headers @{ Origin = $baseUrl }
+    if ($refresh.token_type -ne 'bearer') { throw 'Refresh rotation failed' }
+    $adminPassword = $null
 
     for ($attempt = 0; $attempt -lt 12; $attempt++) {
         $inventory = Invoke-RestMethod "$baseUrl/demo/agents"

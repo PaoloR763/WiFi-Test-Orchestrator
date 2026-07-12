@@ -21,6 +21,12 @@ Versioning cuando existan releases publicadas.
   PostgreSQL, Redis, artifact store filesystem y agente simulado outbound-only.
 - Health/readiness, logs JSON, correlation IDs, scripts equivalentes, tests y
   CI Linux basada en contenedores.
+- Dominio persistente de usuarios, roles, permisos, sesiones, refresh tokens y
+  auditoría, con esqueletos mínimos para continuidad de fases posteriores.
+- JWT HS256 estricto, Argon2id, refresh rotation/reuse detection, revocación,
+  RBAC deny-by-default, rate limiting Redis y protección CSRF same-origin.
+- Seeds idempotentes, bootstrap seguro del primer administrador, roles de base
+  separados, migraciones reproducibles y tests PostgreSQL/Redis reales.
 
 ### Changed
 
@@ -46,6 +52,9 @@ Versioning cuando existan releases publicadas.
   infraestructura.
 - PostgreSQL, Redis y servicios internos no publican puertos; el reverse proxy
   no privilegiado es el único ingreso normal del entorno local.
+- Secretos locales independientes se generan en `.env` ignorado; los ejemplos
+  no contienen valores utilizables. AuditLog es append-only para aplicación y
+  rol runtime, sin afirmar inmutabilidad frente al propietario PostgreSQL.
 
 ## Release status
 

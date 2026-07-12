@@ -5,10 +5,11 @@ pruebas Wi-Fi en laboratorios, pilotos y redes autorizadas.
 
 ## Estado del proyecto
 
-El proyecto se encuentra en la Fase 02. Incluye un entorno local ejecutable con
+El proyecto se encuentra en la Fase 03. Incluye un entorno local ejecutable con
 reverse proxy, frontend, backend, worker, PostgreSQL, Redis, artifact store
-filesystem y un agente simulado outbound-only. El dominio definitivo, la
-autenticación y los contratos normativos permanecen diferidos.
+filesystem, agente simulado outbound-only, autenticación local, sesiones con
+rotación, RBAC humano y auditoría append-only para aplicación/rol runtime. Los
+contratos normativos permanecen diferidos a Fase 04.
 
 Baselines aprobados:
 
@@ -73,6 +74,14 @@ La UI queda en `http://localhost:8080`. Consulte la
 [guía de desarrollo](docs/development.md), el
 [mapa del repositorio](docs/repository-map.md),
 [troubleshooting](docs/troubleshooting.md) y [rollback](docs/rollback.md).
+
+Antes del primer inicio genere secretos locales:
+
+```powershell
+./scripts/generate-env.ps1
+```
+
+La referencia de identidad está en [docs/phase03](docs/phase03/README.md).
 
 ## Agentes y capabilities
 

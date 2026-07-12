@@ -3,10 +3,11 @@ from __future__ import annotations
 from typing import Protocol
 
 from redis import Redis
-from sqlalchemy import Engine, create_engine, text
+from sqlalchemy import Engine, text
 
 from wto_backend.artifact_store import LocalFilesystemArtifactStore
 from wto_backend.config import Settings
+from wto_backend.db.session import Database
 
 
 class ReadinessCheck(Protocol):
@@ -14,27 +15,21 @@ class ReadinessCheck(Protocol):
 
 
 class PostgresCheck:
-    def __init__(self, database_url: str) -> None:
-        self._engine: Engine = create_engine(database_url, pool_pre_ping=True)
+    def __init__(self, engine: Engine) -> None:
+        self._engine = engine
 
     def check(self) -> None:
         with self._engine.connect() as connection:
             connection.execute(text("SELECT 1"))
 
-    def close(self) -> None:
-        self._engine.dispose()
-
 
 class RedisCheck:
-    def __init__(self, host: str, port: int, database: int) -> None:
-        self._client: Redis[bytes] = Redis(host=host, port=port, db=database, socket_timeout=2)
+    def __init__(self, client: Redis[bytes]) -> None:
+        self._client = client
 
     def check(self) -> None:
         if not self._client.ping():
             raise ConnectionError("redis ping failed")
-
-    def close(self) -> None:
-        self._client.close()
 
 
 class ArtifactStoreCheck:
@@ -47,8 +42,15 @@ class ArtifactStoreCheck:
 
 class RuntimeDependencies:
     def __init__(self, settings: Settings) -> None:
-        self.postgres = PostgresCheck(settings.database_url)
-        self.redis = RedisCheck(settings.redis_host, settings.redis_port, settings.redis_db)
+        self.database = Database(settings.database_url)
+        self.redis_client: Redis[bytes] = Redis(
+            host=settings.redis_host,
+            port=settings.redis_port,
+            db=settings.redis_db,
+            socket_timeout=2,
+        )
+        self.postgres = PostgresCheck(self.database.engine)
+        self.redis = RedisCheck(self.redis_client)
         self.artifact_store = ArtifactStoreCheck(
             LocalFilesystemArtifactStore(settings.artifact_root)
         )
@@ -61,5 +63,5 @@ class RuntimeDependencies:
         }
 
     def close(self) -> None:
-        self.postgres.close()
-        self.redis.close()
+        self.database.close()
+        self.redis_client.close()

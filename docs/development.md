@@ -1,4 +1,4 @@
-# Desarrollo local de la Fase 02
+# Desarrollo local de la Fase 03
 
 ## Requisitos
 
@@ -14,6 +14,7 @@ lint globalmente. Los comandos de calidad se ejecutan en contenedores Linux.
 Desde la raíz del repositorio:
 
 ```powershell
+./scripts/generate-env.ps1
 docker compose up -d --wait
 ```
 
@@ -48,9 +49,9 @@ sh scripts/dev.sh reset --confirm
 
 ## Configuración
 
-`.env.example` contiene únicamente valores locales de desarrollo. Compose lo
-usa como `env_file`; para un entorno compartido deben inyectarse valores
-propios mediante un mecanismo externo y revisarse TLS, identidad y secretos.
+`.env.example` es una plantilla no utilizable. Los scripts `generate-env`
+crean `.env` ignorado con passwords PostgreSQL y tres claves independientes:
+JWT, HMAC de rate limit y HMAC de auditoría. Compose usa `.env`.
 
 Variables principales:
 
@@ -60,6 +61,11 @@ Variables principales:
 | `WTO_HTTP_PORT` | Puerto publicado por el proxy; predeterminado `8080` |
 | `WTO_LOG_LEVEL` | Nivel de logs JSON |
 | `WTO_DEMO_AGENT_TTL_SECONDS` | Ventana transitoria de presencia demo |
+| `WTO_ALLOWED_ORIGIN` | Origen exacto aceptado para operaciones con cookie |
+| `WTO_TRUSTED_PROXY_CIDRS` | Peers autorizados para aportar `X-Real-IP` |
+| `WTO_JWT_SIGNING_KEY` | Firma JWT; mínimo 256 bits |
+| `WTO_RATE_LIMIT_HMAC_KEY` | Fingerprints efímeros de rate limit |
+| `WTO_AUDIT_SUBJECT_HMAC_KEY` | Fingerprints persistidos en auditoría |
 | `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD` | PostgreSQL local |
 | `SIM_AGENT_ID`, `SIM_AGENT_DISPLAY_NAME` | Identidad sólo para el simulador |
 | `SIM_HEARTBEAT_INTERVAL_SECONDS` | Cadencia de presencia demo |
@@ -82,9 +88,17 @@ sh scripts/dev.sh validate
 Los servicios de herramientas pertenecen al profile opcional `tools`; el
 entorno funcional normal no necesita activar profiles.
 
+## Bootstrap
+
+```powershell
+./scripts/dev.ps1 seed
+./scripts/bootstrap-admin.ps1 -Username admin
+```
+
+El prompt de contraseña es oculto y el administrador debe rotarla al ingresar.
+
 ## Límites de seguridad
 
-El deployment local usa HTTP dentro de un host de desarrollo. TLS, identidad,
-autenticación y RBAC están deliberadamente diferidos y son obligatorios antes
-de cualquier despliegue compartido. El simulated-agent no escucha puertos y
-sólo inicia heartbeats hacia el backend.
+El deployment local usa HTTP dentro de un host de desarrollo. TLS sigue siendo
+obligatorio antes de cualquier despliegue compartido. El simulated-agent no
+escucha puertos y sus endpoints demo no son enrolamiento ni inventario normativo.

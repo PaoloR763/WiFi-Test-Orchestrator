@@ -1,4 +1,4 @@
-name: phase-02-ci
+name: phase-03-ci
 
 on:
   push:
@@ -13,6 +13,8 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7.0.0
+      - name: Generate ephemeral CI secrets
+        run: python scripts/generate_env.py
       - name: Validate repository guardrails
         run: python scripts/validate_repository.py
       - name: Validate Compose syntax and policy
@@ -22,10 +24,11 @@ jobs:
       - name: Backend lint, format, types, and tests
         run: |
           docker compose --profile tools build backend-tools
-          docker compose --profile tools run --rm backend-tools ruff check src tests migrations
-          docker compose --profile tools run --rm backend-tools black --check src tests migrations
-          docker compose --profile tools run --rm backend-tools mypy src
-          docker compose --profile tools run --rm backend-tools pytest --cov=wto_backend --cov-report=term-missing
+          docker compose --profile tools run --rm --no-deps backend-tools ruff check src tests migrations
+          docker compose --profile tools run --rm --no-deps backend-tools black --check src tests migrations
+          docker compose --profile tools run --rm --no-deps backend-tools mypy src
+          docker compose --profile tools run --rm --no-deps backend-tools pytest --cov=wto_backend --cov-report=term-missing
+          sh scripts/dev.sh test-integration
       - name: Frontend lint, format, types, tests, and build
         run: |
           docker compose --profile tools build frontend-tools

@@ -43,6 +43,17 @@ La revisión inicial es una baseline vacía y no crea modelos definitivos. Si la
 base local es descartable, consulte el procedimiento de rollback antes de
 eliminar volúmenes.
 
+En Fase 03 `alembic current` debe mostrar `20260712_0003`. Si el rol runtime no
+puede acceder a tablas, verifique que PostgreSQL se inicializó con el `.env`
+actual; rotar passwords sobre un volumen existente requiere rotación SQL o un
+reset explícito de datos descartables.
+
+## Faltan secretos o son inseguros
+
+Ejecute `scripts/generate-env.ps1` o `scripts/generate-env.sh`. El backend falla
+cerrado si una de las tres claves falta, es corta, placeholder o se reutiliza.
+No copie valores de `.env.example`.
+
 ## El agente simulado no aparece
 
 Revise `docker compose logs simulated-agent backend`. El agente debe publicar

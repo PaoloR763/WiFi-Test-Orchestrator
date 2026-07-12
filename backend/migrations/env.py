@@ -6,13 +6,15 @@ from alembic import context
 from sqlalchemy import engine_from_config, pool
 
 from wto_backend.config import get_settings
+from wto_backend.db.base import Base
+from wto_backend.domain import models  # noqa: F401
 
 config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-config.set_main_option("sqlalchemy.url", get_settings().database_url)
-target_metadata = None
+config.set_main_option("sqlalchemy.url", get_settings().migration_database_url)
+target_metadata = Base.metadata
 
 
 def run_migrations_offline() -> None:
@@ -33,7 +35,12 @@ def run_migrations_online() -> None:
         poolclass=pool.NullPool,
     )
     with connectable.connect() as connection:
-        context.configure(connection=connection, target_metadata=target_metadata)
+        context.configure(
+            connection=connection,
+            target_metadata=target_metadata,
+            compare_type=True,
+            compare_server_default=True,
+        )
         with context.begin_transaction():
             context.run_migrations()
 
