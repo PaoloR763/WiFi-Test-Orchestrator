@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.wifi-test-orchestrator.example/1.0.0/reason.schema.json",
+  "title": "Reason",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["code"],
+  "properties": {
+    "code": {
+      "type": "string",
+      "enum": ["not_exposed_by_platform", "not_implemented", "permission_missing", "permission_denied", "user_interaction_required", "lifecycle_restricted", "provider_unavailable", "policy_denied", "not_applicable", "unknown", "incompatible_version", "agent_revoked", "expired", "blocked", "skipped"]
+    },
+    "detail": {"type": "string", "minLength": 1, "maxLength": 256}
+  },
+  "maxProperties": 2
+}

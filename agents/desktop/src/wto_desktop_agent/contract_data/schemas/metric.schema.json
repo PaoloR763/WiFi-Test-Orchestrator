@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.wifi-test-orchestrator.example/1.0.0/metric.schema.json",
+  "title": "Metric",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["metric_id", "value", "unit", "source", "availability", "confidence", "reason"],
+  "properties": {
+    "metric_id": {"type": "string", "minLength": 3, "maxLength": 128, "pattern": "^[a-z][a-z0-9_.-]+$"},
+    "value": {"type": ["number", "integer", "boolean", "string", "null"], "maxLength": 256},
+    "unit": {"type": "string", "minLength": 1, "maxLength": 32, "pattern": "^[A-Za-z0-9%._/:-]+$"},
+    "source": {
+      "type": "object", "additionalProperties": false,
+      "required": ["plane", "producer", "method"],
+      "properties": {
+        "plane": {"type": "string", "enum": ["control", "data", "telemetry", "artifact", "integration"]},
+        "producer": {"type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[A-Za-z0-9._-]+$"},
+        "method": {"type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[A-Za-z0-9._-]+$"},
+        "version": {"$ref": "common.schema.json#/$defs/semver"}
+      }
+    },
+    "availability": {"type": "string", "enum": ["measured", "estimated", "unavailable", "unknown", "not_applicable"]},
+    "confidence": {"type": "string", "enum": ["high", "medium", "low", "unknown", "not_applicable"]},
+    "reason": {"anyOf": [{"$ref": "reason.schema.json"}, {"type": "null"}]}
+  }
+}

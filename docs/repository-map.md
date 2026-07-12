@@ -14,6 +14,8 @@
 | `docs/` | Guías operativas y de desarrollo |
 | `docs/phase03/` | ERD, seguridad, RBAC, auditoría y migraciones de Fase 03 |
 | `docs/phase04/` | Protocolo, capabilities, enrolamiento, idempotencia y runbooks de Fase 04 |
+| `agents/desktop/` | Runtime compartido Windows/Linux, SQLite, CLI y adapters de Fase 05 |
+| `docs/phase05/` | Arquitectura, seguridad, persistencia y operación del agente desktop |
 | `tests/compose/` | Política estática de Compose |
 | `scripts/` | Operación, smoke y guardrails del repositorio |
 | `.github/workflows/` | CI Linux basada en contenedores |

@@ -276,6 +276,15 @@ services:
     working_dir: /app
     network_mode: none
 
+  desktop-agent-tools:
+    profiles: ["tools"]
+    build:
+      context: .
+      dockerfile: agents/desktop/Dockerfile
+      target: test
+    working_dir: /workspace/agents/desktop
+    network_mode: none
+
   contracts-typescript:
     profiles: ["contracts"]
     build:

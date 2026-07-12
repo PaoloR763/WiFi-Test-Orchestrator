@@ -6,7 +6,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$IntegrationProjectName = 'wto-phase04-integration'
+$IntegrationProjectName = 'wto-phase05-integration'
 
 function Invoke-Checked {
     param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Command)
@@ -24,6 +24,11 @@ function Invoke-BackendTool {
 function Invoke-FrontendTool {
     param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Arguments)
     Invoke-Checked docker compose --profile tools run --rm --build frontend-tools @Arguments
+}
+
+function Invoke-DesktopTool {
+    param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Arguments)
+    Invoke-Checked docker compose --profile tools run --rm --no-deps --build desktop-agent-tools @Arguments
 }
 
 function Assert-IntegrationProjectRemoved {
@@ -126,18 +131,22 @@ switch ($Action) {
     'build' { Invoke-Checked docker compose build }
     'lint' {
         Invoke-BackendTool ruff check src tests migrations
+        Invoke-DesktopTool ruff check src tests
         Invoke-FrontendTool npm run lint
     }
     'format-check' {
         Invoke-BackendTool black --check src tests migrations
+        Invoke-DesktopTool black --check src tests
         Invoke-FrontendTool npm run format-check
     }
     'typecheck' {
         Invoke-BackendTool mypy src
+        Invoke-DesktopTool mypy src
         Invoke-FrontendTool npm run typecheck
     }
     'test' {
         Invoke-BackendTool pytest --cov=wto_backend --cov-report=term-missing
+        Invoke-DesktopTool pytest tests --cov=wto_desktop_agent --cov-report=term-missing
         Invoke-FrontendTool npm test
     }
     'test-integration' { Invoke-WithIntegrationCleanup { Invoke-IntegrationCommands } }
@@ -156,12 +165,14 @@ switch ($Action) {
             Invoke-Checked python scripts/validate_repository.py
             Invoke-Checked python scripts/build_openapi.py --check
             Invoke-Checked python scripts/check_contract_compatibility.py --verify-release
+            Invoke-Checked python scripts/sync_desktop_contracts.py --check
             Invoke-Checked docker compose config --quiet
             Invoke-Checked python tests/compose/test_compose_policy.py
             & $PSCommandPath lint
             & $PSCommandPath format-check
             & $PSCommandPath typecheck
             & $PSCommandPath test
+            Invoke-DesktopTool python /workspace/scripts/test_desktop_wheel.py
             Invoke-BackendTool python scripts/validate_contracts.py
             Invoke-BackendTool python scripts/check_openapi_drift.py
             Invoke-IntegrationCommands

@@ -68,6 +68,17 @@ EXPECTED_CONTRACT_SCHEMAS = {
 GRADLE_WRAPPER_JAR = Path("shared/contracts/consumers/kotlin/gradle/wrapper/gradle-wrapper.jar")
 GRADLE_WRAPPER_JAR_SHA256 = "7d3a4ac4de1c32b59bc6a4eb8ecb8e612ccd0cf1ae1e99f66902da64df296172"
 GRADLE_DISTRIBUTION_SHA256 = "7197a12f450794931532469d4ff21a59ea2c1cd59a3ec3f89c035c3c420a6999"
+WINDOWS_CI_INSTALL_COMMANDS = (
+    "python -m pip install --requirement agents/desktop/requirements-dev.lock",
+    "python -m pip install --no-deps --editable agents/desktop",
+    "python -m pip check",
+)
+LF_PATHS = (
+    Path("scripts/dev.sh"),
+    Path(".github/workflows/ci.yml"),
+    Path(".gitattributes"),
+    Path("shared/contracts/consumers/kotlin/gradlew"),
+)
 
 
 def files_to_scan() -> list[Path]:
@@ -98,6 +109,33 @@ def validate_contract_inventory(failures: list[str]) -> None:
     for name in canonical_names & packaged_names:
         if (canonical / name).read_bytes() != (packaged / name).read_bytes():
             failures.append(f"backend contract_data schema differs byte-for-byte: {name}")
+    desktop = (
+        ROOT
+        / "agents"
+        / "desktop"
+        / "src"
+        / "wto_desktop_agent"
+        / "contract_data"
+    )
+    source_root = ROOT / "shared" / "contracts"
+    expected_files = {
+        path.relative_to(source_root)
+        for directory in ("schemas", "catalog", "examples", "openapi")
+        for path in (source_root / directory).rglob("*")
+        if path.is_file()
+    }
+    actual_files = (
+        {path.relative_to(desktop) for path in desktop.rglob("*") if path.is_file()}
+        if desktop.exists()
+        else set()
+    )
+    if actual_files != expected_files:
+        failures.append("desktop contract_data inventory differs from canonical source")
+    for relative in expected_files & actual_files:
+        if (source_root / relative).read_bytes() != (desktop / relative).read_bytes():
+            failures.append(
+                f"desktop contract_data differs byte-for-byte: {relative.as_posix()}"
+            )
 
 
 def validate_gradle_wrapper(failures: list[str]) -> None:
@@ -143,6 +181,54 @@ def validate_gradle_wrapper(failures: list[str]) -> None:
         failures.append(f"{relative}: not included by Git as tracked or untracked candidate")
 
 
+def validate_desktop_ci_policy(failures: list[str]) -> None:
+    workflow_path = ROOT / ".github" / "workflows" / "ci.yml"
+    workflow = workflow_path.read_text(encoding="utf-8")
+    match = re.search(
+        r"(?ms)^  desktop-agent-windows:\n(?P<body>.*?)(?=^  [A-Za-z0-9_-]+:\n|\Z)",
+        workflow,
+    )
+    if match is None:
+        failures.append("ci.yml: desktop-agent-windows job missing")
+        return
+    windows_job = match.group("body")
+    if "agents/desktop[dev]" in windows_job:
+        failures.append("ci.yml: Windows desktop job must not install the dev extra directly")
+    positions = [windows_job.find(command) for command in WINDOWS_CI_INSTALL_COMMANDS]
+    if any(position < 0 for position in positions) or positions != sorted(positions):
+        failures.append("ci.yml: Windows desktop job must install locks, editable --no-deps, then pip check")
+    if "cache-dependency-path: |" not in windows_job:
+        failures.append("ci.yml: Windows desktop pip cache must use a dependency path block")
+    for lock_path in (
+        "agents/desktop/requirements.lock",
+        "agents/desktop/requirements-dev.lock",
+    ):
+        if lock_path not in windows_job:
+            failures.append(f"ci.yml: Windows desktop job does not consume {lock_path}")
+
+    dockerfile = (ROOT / "agents" / "desktop" / "Dockerfile").read_text(encoding="utf-8")
+    if "agents/desktop[dev]" in dockerfile:
+        failures.append("agents/desktop/Dockerfile: Linux test image must not install dev extras")
+    for required in (
+        "--requirement agents/desktop/requirements-dev.lock",
+        "--requirement agents/desktop/requirements.lock",
+        "--no-deps --editable ./agents/desktop",
+    ):
+        if required not in dockerfile:
+            failures.append(f"agents/desktop/Dockerfile: missing locked install policy {required}")
+
+
+def validate_line_endings(failures: list[str]) -> None:
+    for path in (ROOT / "scripts").glob("*.ps1"):
+        data = path.read_bytes()
+        remainder = data.replace(b"\r\n", b"")
+        if b"\r" in remainder or b"\n" in remainder:
+            failures.append(f"{path.relative_to(ROOT).as_posix()}: expected CRLF-only line endings")
+    for relative in LF_PATHS:
+        if b"\r" in (ROOT / relative).read_bytes():
+            failures.append(f"{relative.as_posix()}: expected LF-only line endings")
+
+
 def main() -> None:
     failures: list[str] = []
     windows_path = re.compile(r"(?<![A-Za-z])[A-Za-z]:[\\/]")
@@ -153,13 +239,19 @@ def main() -> None:
 
     validate_contract_inventory(failures)
     validate_gradle_wrapper(failures)
+    validate_desktop_ci_policy(failures)
+    validate_line_endings(failures)
 
     for path in files_to_scan():
         content = path.read_text(encoding="utf-8")
         relative = path.relative_to(ROOT).as_posix()
         negative_contract_fixture = relative.startswith(
             "shared/contracts/examples/invalid/"
-        ) or relative.startswith("backend/src/wto_backend/contract_data/examples/invalid/")
+        ) or relative.startswith(
+            "backend/src/wto_backend/contract_data/examples/invalid/"
+        ) or relative.startswith(
+            "agents/desktop/src/wto_desktop_agent/contract_data/examples/invalid/"
+        )
         if windows_path.search(content):
             failures.append(f"{relative}: absolute Windows path")
         if real_availability_reason.search(content):

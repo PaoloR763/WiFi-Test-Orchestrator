@@ -6,6 +6,7 @@ import secrets
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from uuid import UUID, uuid4
 
 import pytest
@@ -984,3 +985,83 @@ def test_phase04_concurrent_rotation_stubs_limits_and_redis_fail_closed(
     )
     assert unavailable.status_code == 503
     assert unavailable.json()["error"]["code"] == "dependency_unavailable"
+
+
+def test_phase05_desktop_client_uses_real_phase04_public_protocol(
+    client: TestClient, tmp_path: Path
+) -> None:
+    import asyncio
+
+    import httpx
+    from wto_desktop_agent.application.capabilities import (
+        CapabilityRegistry,
+        ManifestService,
+    )
+    from wto_desktop_agent.application.heartbeat import HeartbeatService
+    from wto_desktop_agent.application.identity import IdentityManager
+    from wto_desktop_agent.infrastructure.http_transport import HttpAgentTransport
+    from wto_desktop_agent.infrastructure.sqlite.store import SQLiteStore
+    from wto_desktop_agent.platforms.simulated.adapter import SimulatedPlatformAdapter
+    from wto_desktop_agent.ports.time import SystemClock
+
+    access = login(client)
+    token_response = client.post(
+        "/api/v1/enrollment-tokens",
+        headers=auth_headers(access),
+        json={
+            "scope": "agent.enroll",
+            "expires_in_minutes": 15,
+            "allowed_platforms": ["simulated"],
+        },
+    )
+    assert token_response.status_code == 201
+    token = str(token_response.json()["enrollment_token"])
+
+    def phase04_handler(request: httpx.Request) -> httpx.Response:
+        response = client.request(
+            request.method,
+            request.url.path,
+            headers=dict(request.headers),
+            content=request.content,
+        )
+        return httpx.Response(
+            response.status_code,
+            headers=dict(response.headers),
+            content=response.content,
+            request=request,
+        )
+
+    async def scenario() -> None:
+        async_client = httpx.AsyncClient(transport=httpx.MockTransport(phase04_handler))
+        transport = HttpAgentTransport("https://testserver", timeout_seconds=5, client=async_client)
+        store = SQLiteStore(tmp_path / "desktop-agent.sqlite3")
+        store.initialize()
+        platform = SimulatedPlatformAdapter()
+        identity = IdentityManager(
+            store,
+            platform,
+            transport,
+            SystemClock(),
+            allow_insecure_development_store=True,
+        )
+        await identity.enroll(token=token, display_name="Phase 05 integration agent")
+        first_credential_id = store.identity()["active_credential_id"]  # type: ignore[index]
+        await identity.rotate()
+        assert store.identity()["active_credential_id"] != first_credential_id  # type: ignore[index]
+        store.start_runtime(str(uuid4()))
+        credential = identity.active_credential()
+        manifest = await ManifestService(
+            store,
+            CapabilityRegistry(platform),
+            transport,
+            platform,
+            SystemClock(),
+        ).ensure_published(credential)
+        heartbeat = await HeartbeatService(store, transport, SystemClock()).send(credential)
+        assert len(manifest["capabilities"]) == 15
+        assert heartbeat["sequence"] == 0
+        assert store.pending_manifest() is None
+        assert store.pending_heartbeat() is None
+        await async_client.aclose()
+
+    asyncio.run(scenario())

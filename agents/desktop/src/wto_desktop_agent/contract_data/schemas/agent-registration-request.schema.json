@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.wifi-test-orchestrator.example/1.0.0/agent-registration-request.schema.json",
+  "title": "AgentRegistrationRequest",
+  "type": "object", "additionalProperties": false,
+  "required": ["schema_version", "idempotency_key", "enrollment_token", "installation_id", "display_name", "platform", "platform_version", "agent_version", "protocol_min_version", "protocol_max_version", "agent_reported_at"],
+  "properties": {
+    "schema_version": {"$ref": "common.schema.json#/$defs/schema_version"},
+    "idempotency_key": {"$ref": "common.schema.json#/$defs/idempotency_key"},
+    "enrollment_token": {"type": "string", "minLength": 90, "maxLength": 90, "pattern": "^wto_enr_1\\.[0-9a-f-]{36}\\.[A-Za-z0-9_-]{43}$"},
+    "installation_id": {"$ref": "common.schema.json#/$defs/uuid"},
+    "display_name": {"type": "string", "minLength": 1, "maxLength": 128},
+    "platform": {"$ref": "common.schema.json#/$defs/platform"},
+    "platform_version": {"type": "string", "minLength": 1, "maxLength": 64},
+    "agent_version": {"$ref": "common.schema.json#/$defs/semver"},
+    "protocol_min_version": {"$ref": "common.schema.json#/$defs/agent_protocol"},
+    "protocol_max_version": {"$ref": "common.schema.json#/$defs/agent_protocol"},
+    "agent_reported_at": {"$ref": "common.schema.json#/$defs/utc_timestamp"}
+  }
+}

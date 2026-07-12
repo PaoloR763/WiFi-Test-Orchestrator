@@ -8,6 +8,17 @@ Versioning cuando existan releases publicadas.
 
 ## Unreleased
 
+- Agregado el runtime desktop compartido Windows/Linux con configuración TOML
+  estricta, SQLite migrable, CLI, heartbeat, Capability Manifest, rotación
+  recuperable, scheduler local y TaskRunner.
+- Agregados adapters Windows Credential Manager y Linux Secret Service,
+  ProcessRunner deny-by-default, plugin sin efectos `protocol.contract_check` y
+  simuladores explícitos para CI.
+- Empaquetados los contratos del agente como copia derivada verificable de los
+  14 schemas, 15 capabilities y 25 fixtures de Fase 04.
+- Agregadas suites Linux, property/state-machine, wheel limpio y jobs CI nativos
+  Ubuntu/Windows para el agente desktop.
+
 ### Added
 
 - Contratos normativos OpenAPI 3.1 y JSON Schema Draft 2020-12, golden

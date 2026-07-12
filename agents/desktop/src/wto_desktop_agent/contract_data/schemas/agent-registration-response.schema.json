@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.wifi-test-orchestrator.example/1.0.0/agent-registration-response.schema.json",
+  "title": "AgentRegistrationResponse",
+  "type": "object", "additionalProperties": false,
+  "required": ["schema_version", "device_id", "agent_id", "protocol_version", "server_received_at", "credential"],
+  "properties": {
+    "schema_version": {"$ref": "common.schema.json#/$defs/schema_version"},
+    "device_id": {"$ref": "common.schema.json#/$defs/uuid"},
+    "agent_id": {"$ref": "common.schema.json#/$defs/uuid"},
+    "protocol_version": {"$ref": "common.schema.json#/$defs/agent_protocol"},
+    "server_received_at": {"$ref": "common.schema.json#/$defs/utc_timestamp"},
+    "credential": {"$ref": "agent-credential.schema.json"}
+  }
+}

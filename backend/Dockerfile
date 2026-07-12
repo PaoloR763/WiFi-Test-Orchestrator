@@ -32,5 +32,7 @@ COPY backend/pyproject.toml ./
 COPY backend/tests ./tests
 COPY scripts ./scripts
 COPY shared ./shared
+COPY agents/desktop /app/agents/desktop
+RUN python -m pip install --no-cache-dir --editable '/app/agents/desktop[dev]'
 RUN chown -R wto:wto /app
 USER wto
