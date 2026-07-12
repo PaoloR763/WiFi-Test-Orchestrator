@@ -1,5 +1,12 @@
 # AGENTS.md - Contexto maestro de WiFi Test Orchestrator
 
+## Alcance de estas instrucciones
+
+Este archivo complementa las instrucciones de `AGENTS.md` en la raíz para los
+archivos del subdirectorio `prompts/`. No redefine ni contradice las decisiones
+arquitectónicas normativas establecidas por el archivo raíz y los ADRs
+aceptados.
+
 Actuá como arquitecto de software senior, desarrollador full stack, especialista en redes Wi-Fi IEEE 802.11, automatización de pruebas, aplicaciones móviles, sistemas distribuidos y seguridad.
 
 ## 1. Propósito
@@ -97,8 +104,10 @@ Todos los resultados deben conservar proveedor, versión, método, dirección, p
 
 ## 7. Fidelidad técnica Wi-Fi
 
-- No inventar métricas. `null` no significa cero.
-- Cada campo medido debe incluir `source`, `availability`, `confidence` y, cuando aplique, `availability_reason`.
+- No inventar métricas. `value: null` nunca significa cero.
+- Toda métrica usa conceptualmente `value`, `unit`, `source`, `availability`, `confidence` y `reason`.
+- `reason` es el único nombre conceptual para explicar indisponibilidad, condicionamiento, degradación o una decisión de ejecución; no definir un campo paralelo `availability_reason`.
+- La cardinalidad, las enumeraciones y la representación JSON final de `reason` se definirán en la Fase 04.
 - Diferenciar telemetría del SO, contadores de interfaz, captura IP, captura 802.11 y telemetría de infraestructura.
 - Un endpoint no observa todas las tramas de terceros.
 - Roaming medido por endpoint es observado/inferido salvo captura sincronizada.
@@ -111,14 +120,19 @@ Todos los resultados deben conservar proveedor, versión, método, dirección, p
 Cada agente publica un manifiesto versionado con:
 
 - capability id y versión.
-- soporte: supported, unsupported, conditional, permission_required o user_interaction_required.
-- restricciones de foreground/background.
-- límites de duración, throughput, tamaño y concurrencia.
-- proveedor y versión.
-- permisos/entitlements necesarios.
-- razones de indisponibilidad.
+- soporte técnico (`technical_support`).
+- estado de implementación (`implementation_status`).
+- requisitos de permisos o entitlements (`permission_requirement`).
+- interacción de usuario (`user_interaction`).
+- ejecución en foreground/background y restricciones de lifecycle (`background_execution`).
+- proveedor y versión (`provider`).
+- límites de duración, throughput, tamaño, concurrencia y demás condiciones (`limitations`).
 
-Ejemplos: `wifi.current_connection`, `wifi.scan`, `wifi.rssi`, `network.icmp_ping`, `network.tcp_probe`, `traffic.iperf3.tcp`, `traffic.http.download`, `traffic.latency_under_load`, `capture.ip`, `capture.monitor_80211`, `replay.pcap`, `execution.background_continuous`.
+Estas dimensiones no se condensan en un único campo `support`. `reason` es el único nombre conceptual para explicar indisponibilidad, condicionamiento, degradación o una decisión de ejecución. Los vocabularios cerrados y el JSON Schema del manifiesto se definirán en la Fase 04.
+
+Ejemplos: `wifi.connection.read`, `wifi.scan`, `wifi.rssi.read`, `network.icmp.ping`, `network.tcp.probe`, `network.http.probe`, `traffic.tcp.throughput`, `traffic.udp.throughput`, `traffic.http.download`, `traffic.http.upload`, `traffic.latency_under_load`, `capture.ip`, `capture.ieee80211.monitor`, `traffic.pcap.replay`, `execution.background.continuous`.
+
+iperf3 es un provider intercambiable, no una capability.
 
 ## 9. Contratos y compatibilidad
 
