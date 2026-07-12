@@ -1,0 +1,14 @@
+{
+  "schema_version": "1.0.0",
+  "result_id": "60000000-0000-4000-8000-000000000003",
+  "task_id": "40000000-0000-4000-8000-000000000001",
+  "execution_id": "40000000-0000-4000-8000-000000000002",
+  "status": "completed",
+  "outcome": "pass",
+  "started_at": "2026-07-12T12:00:00Z",
+  "finished_at": "2026-07-12T12:00:01Z",
+  "provider": {"provider_id": "native-http", "provider_version": "1.0.0", "method": "http_get"},
+  "metrics": [{"metric_id": "network.loss", "value": 0, "unit": "%", "source": {"plane": "data", "producer": "simulated", "method": "counter", "version": "1.0.0"}, "availability": "measured", "confidence": "high", "reason": null}],
+  "idempotency_key": "60000000-0000-4000-8000-000000000004",
+  "reason": null
+}

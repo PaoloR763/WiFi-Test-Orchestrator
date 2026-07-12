@@ -49,6 +49,7 @@ def events(
                 id=item.id,
                 actor_type=item.actor_type,
                 actor_id=item.actor_id,
+                actor_agent_id=item.actor_agent_id,
                 action=item.action,
                 resource_type=item.resource_type,
                 resource_id=item.resource_id,

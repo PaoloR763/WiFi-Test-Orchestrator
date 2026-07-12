@@ -1,0 +1,3128 @@
+{
+  "components": {
+    "headers": {
+      "CorrelationId": {
+        "description": "Request correlation identifier",
+        "required": true,
+        "schema": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+          "type": "string"
+        }
+      }
+    },
+    "parameters": {
+      "AgentId": {
+        "in": "path",
+        "name": "agent_id",
+        "required": true,
+        "schema": {
+          "format": "uuid",
+          "type": "string"
+        }
+      },
+      "AgentNonce": {
+        "in": "header",
+        "name": "X-WTO-Agent-Nonce",
+        "required": true,
+        "schema": {
+          "pattern": "^[A-Za-z0-9_-]{22}$",
+          "type": "string"
+        }
+      },
+      "AgentProtocol": {
+        "in": "header",
+        "name": "X-WTO-Agent-Protocol",
+        "required": true,
+        "schema": {
+          "const": "1.0.0",
+          "type": "string"
+        }
+      },
+      "AgentTimestamp": {
+        "in": "header",
+        "name": "X-WTO-Agent-Timestamp",
+        "required": true,
+        "schema": {
+          "format": "date-time",
+          "pattern": "Z$",
+          "type": "string"
+        }
+      },
+      "CorrelationIdRequest": {
+        "in": "header",
+        "name": "X-Correlation-ID",
+        "required": true,
+        "schema": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+          "type": "string"
+        }
+      },
+      "CredentialId": {
+        "in": "path",
+        "name": "credential_id",
+        "required": true,
+        "schema": {
+          "format": "uuid",
+          "type": "string"
+        }
+      },
+      "IdempotencyKey": {
+        "in": "header",
+        "name": "Idempotency-Key",
+        "required": true,
+        "schema": {
+          "format": "uuid",
+          "type": "string"
+        }
+      },
+      "RoleKey": {
+        "in": "path",
+        "name": "role_key",
+        "required": true,
+        "schema": {
+          "maxLength": 64,
+          "minLength": 3,
+          "type": "string"
+        }
+      },
+      "RotationId": {
+        "in": "path",
+        "name": "rotation_id",
+        "required": true,
+        "schema": {
+          "format": "uuid",
+          "type": "string"
+        }
+      },
+      "TokenId": {
+        "in": "path",
+        "name": "token_id",
+        "required": true,
+        "schema": {
+          "format": "uuid",
+          "type": "string"
+        }
+      },
+      "UserId": {
+        "in": "path",
+        "name": "user_id",
+        "required": true,
+        "schema": {
+          "format": "uuid",
+          "type": "string"
+        }
+      }
+    },
+    "requestBodies": {
+      "EnrollmentTokenCreate": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/EnrollmentTokenCreateRequest"
+            }
+          }
+        },
+        "required": true
+      },
+      "GenericJson": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "maxProperties": 32,
+              "type": "object"
+            }
+          }
+        },
+        "required": true
+      },
+      "RotationActivate": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/RotationRequest"
+            }
+          }
+        },
+        "required": true
+      },
+      "RotationCreate": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/RotationRequest"
+            }
+          }
+        },
+        "required": true
+      }
+    },
+    "responses": {
+      "CredentialMetadataList": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "items": {
+                "$ref": "#/components/schemas/CredentialMetadata"
+              },
+              "maxItems": 128,
+              "type": "array"
+            }
+          }
+        },
+        "description": "Credential versions without secrets",
+        "headers": {
+          "X-Correlation-ID": {
+            "$ref": "#/components/headers/CorrelationId"
+          }
+        }
+      },
+      "EnrollmentTokenCreated": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/EnrollmentTokenResponse"
+            }
+          }
+        },
+        "description": "Enrollment secret returned once logically",
+        "headers": {
+          "X-Correlation-ID": {
+            "$ref": "#/components/headers/CorrelationId"
+          }
+        }
+      },
+      "Error": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorEnvelope"
+            }
+          }
+        },
+        "description": "Normative error",
+        "headers": {
+          "X-Correlation-ID": {
+            "$ref": "#/components/headers/CorrelationId"
+          }
+        }
+      },
+      "JsonSuccess": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object"
+            }
+          }
+        },
+        "description": "Successful JSON response",
+        "headers": {
+          "X-Correlation-ID": {
+            "$ref": "#/components/headers/CorrelationId"
+          }
+        }
+      },
+      "ManifestAccepted": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ManifestAccepted"
+            }
+          }
+        },
+        "description": "Capability manifest accepted",
+        "headers": {
+          "X-Correlation-ID": {
+            "$ref": "#/components/headers/CorrelationId"
+          }
+        }
+      },
+      "PresenceAccepted": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/PresenceResponse"
+            }
+          }
+        },
+        "description": "Heartbeat or mobile presence accepted",
+        "headers": {
+          "X-Correlation-ID": {
+            "$ref": "#/components/headers/CorrelationId"
+          }
+        }
+      },
+      "RotationActivated": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/RotationActivateResponse"
+            }
+          }
+        },
+        "description": "Pending credential activated",
+        "headers": {
+          "X-Correlation-ID": {
+            "$ref": "#/components/headers/CorrelationId"
+          }
+        }
+      },
+      "RotationCreated": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/RotationCreateResponse"
+            }
+          }
+        },
+        "description": "Pending credential returned once logically",
+        "headers": {
+          "X-Correlation-ID": {
+            "$ref": "#/components/headers/CorrelationId"
+          }
+        }
+      }
+    },
+    "schemas": {
+      "AgentCredential": {
+        "$id": "https://schemas.wifi-test-orchestrator.example/1.0.0/agent-credential.schema.json",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "credential": {
+            "maxLength": 89,
+            "minLength": 89,
+            "pattern": "^wto_ac_1\\.[0-9a-f-]{36}\\.[A-Za-z0-9_-]{43}$",
+            "type": "string"
+          },
+          "credential_id": {
+            "$ref": "#/components/schemas/WTOCommonTypes/$defs/uuid"
+          },
+          "credential_version": {
+            "maximum": 2147483647,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "expires_at": {
+            "$ref": "#/components/schemas/WTOCommonTypes/$defs/utc_timestamp"
+          },
+          "issued_at": {
+            "$ref": "#/components/schemas/WTOCommonTypes/$defs/utc_timestamp"
+          },
+          "schema_version": {
+            "$ref": "#/components/schemas/WTOCommonTypes/$defs/schema_version"
+          },
+          "state": {
+            "enum": [
+              "active",
+              "pending"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema_version",
+          "credential_id",
+          "credential_version",
+          "credential",
+          "issued_at",
+          "expires_at",
+          "state"
+        ],
+        "title": "AgentCredential",
+        "type": "object"
+      },
+      "AgentRegistrationRequest": {
+        "$id": "https://schemas.wifi-test-orchestrator.example/1.0.0/agent-registration-request.schema.json",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "agent_reported_at": {
+            "$ref": "#/components/schemas/WTOCommonTypes/$defs/utc_timestamp"
+          },
+          "agent_version": {
+            "$ref": "#/components/schemas/WTOCommonTypes/$defs/semver"
+          },
+          "display_name": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          },
+          "enrollment_token": {
+            "maxLength": 90,
+            "minLength": 90,
+            "pattern": "^wto_enr_1\\.[0-9a-f-]{36}\\.[A-Za-z0-9_-]{43}$",
+            "type": "string"
+          },
+          "idempotency_key": {
+            "$ref": "#/components/schemas/WTOCommonTypes/$defs/idempotency_key"
+          },
+          "installation_id": {
+            "$ref": "#/components/schemas/WTOCommonTypes/$defs/uuid"
+          },
+          "platform": {
+            "$ref": "#/components/schemas/WTOCommonTypes/$defs/platform"
+          },
+          "platform_version": {
+            "maxLength": 64,
+            "minLength": 1,
+            "type": "string"
+          },
+          "protocol_max_version": {
+            "$ref": "#/components/schemas/WTOCommonTypes/$defs/agent_protocol"
+          },
+          "protocol_min_version": {
+            "$ref": "#/components/schemas/WTOCommonTypes/$defs/agent_protocol"
+          },
+          "schema_version": {
+            "$ref": "#/components/schemas/WTOCommonTypes/$defs/schema_version"
+          }
+        },
+        "required": [
+          "schema_version",
+          "idempotency_key",
+          "enrollment_token",
+          "installation_id",
+          "display_name",
+          "platform",
+          "platform_version",
+          "agent_version",
+          "protocol_min_version",
+          "protocol_max_version",
+          "agent_reported_at"
+        ],
+        "title": "AgentRegistrationRequest",
+        "type": "object"
+      },
+      "AgentRegistrationResponse": {
+        "$id": "https://schemas.wifi-test-orchestrator.example/1.0.0/agent-registration-response.schema.json",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "agent_id": {
+            "$ref": "#/components/schemas/WTOCommonTypes/$defs/uuid"
+          },
+          "credential": {
+            "$ref": "#/components/schemas/AgentCredential"
+          },
+          "device_id": {
+            "$ref": "#/components/schemas/WTOCommonTypes/$defs/uuid"
+          },
+          "protocol_version": {
+            "$ref": "#/components/schemas/WTOCommonTypes/$defs/agent_protocol"
+          },
+          "schema_version": {
+            "$ref": "#/components/schemas/WTOCommonTypes/$defs/schema_version"
+          },
+          "server_received_at": {
+            "$ref": "#/components/schemas/WTOCommonTypes/$defs/utc_timestamp"
+          }
+        },
+        "required": [
+          "schema_version",
+          "device_id",
+          "agent_id",
+          "protocol_version",
+          "server_received_at",
+          "credential"
+        ],
+        "title": "AgentRegistrationResponse",
+        "type": "object"
+      },
+      "ArtifactManifest": {
+        "$id": "https://schemas.wifi-test-orchestrator.example/1.0.0/artifact-manifest.schema.json",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "artifact_id": {
+            "$ref": "#/components/schemas/WTOCommonTypes/$defs/uuid"
+          },
+          "artifact_type": {
+            "enum": [
+              "log",
+              "raw_result",
+              "csv",
+              "report",
+              "pcap",
+              "pcapng"
+            ],
+            "type": "string"
+          },
+          "created_at": {
+            "$ref": "#/components/schemas/WTOCommonTypes/$defs/utc_timestamp"
+          },
+          "execution_id": {
+            "$ref": "#/components/schemas/WTOCommonTypes/$defs/uuid"
+          },
+          "idempotency_key": {
+            "$ref": "#/components/schemas/WTOCommonTypes/$defs/idempotency_key"
+          },
+          "media_type": {
+            "maxLength": 128,
+            "minLength": 3,
+            "pattern": "^[a-z0-9.+-]+/[a-zA-Z0-9.+-]+$",
+            "type": "string"
+          },
+          "schema_version": {
+            "$ref": "#/components/schemas/WTOCommonTypes/$defs/schema_version"
+          },
+          "sha256": {
+            "$ref": "#/components/schemas/WTOCommonTypes/$defs/sha256"
+          },
+          "size_bytes": {
+            "maximum": 1073741824,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "schema_version",
+          "artifact_id",
+          "execution_id",
+          "artifact_type",
+          "media_type",
+          "size_bytes",
+          "sha256",
+          "created_at",
+          "idempotency_key"
+        ],
+        "title": "ArtifactManifest",
+        "type": "object"
+      },
+      "CapabilityManifest": {
+        "$defs": {
+          "background_execution": {
+            "additionalProperties": false,
+            "properties": {
+              "reason": {
+                "$ref": "#/components/schemas/CapabilityManifest/$defs/reason_nullable"
+              },
+              "status": {
+                "enum": [
+                  "continuous",
+                  "bounded",
+                  "foreground_only",
+                  "deferred",
+                  "not_supported",
+                  "unknown",
+                  "not_applicable"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "status",
+              "reason"
+            ],
+            "type": "object"
+          },
+          "capability": {
+            "additionalProperties": false,
+            "properties": {
+              "background_execution": {
+                "$ref": "#/components/schemas/CapabilityManifest/$defs/background_execution"
+              },
+              "id": {
+                "$ref": "#/components/schemas/WTOCommonTypes/$defs/capability_id"
+              },
+              "implementation_status": {
+                "$ref": "#/components/schemas/CapabilityManifest/$defs/implementation_status"
+              },
+              "limitations": {
+                "$ref": "#/components/schemas/CapabilityManifest/$defs/limitations"
+              },
+              "permission_requirement": {
+                "$ref": "#/components/schemas/CapabilityManifest/$defs/permission_requirement"
+              },
+              "provider": {
+                "$ref": "#/components/schemas/CapabilityManifest/$defs/provider"
+              },
+              "technical_support": {
+                "$ref": "#/components/schemas/CapabilityManifest/$defs/technical_support"
+              },
+              "user_interaction": {
+                "$ref": "#/components/schemas/CapabilityManifest/$defs/user_interaction"
+              },
+              "version": {
+                "const": "1.0.0",
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "version",
+              "technical_support",
+              "implementation_status",
+              "permission_requirement",
+              "user_interaction",
+              "background_execution",
+              "provider",
+              "limitations"
+            ],
+            "type": "object"
+          },
+          "dimension_reason": {
+            "additionalProperties": false,
+            "properties": {
+              "reason": {
+                "$ref": "#/components/schemas/CapabilityManifest/$defs/reason_nullable"
+              }
+            },
+            "type": "object"
+          },
+          "implementation_status": {
+            "additionalProperties": false,
+            "properties": {
+              "reason": {
+                "$ref": "#/components/schemas/CapabilityManifest/$defs/reason_nullable"
+              },
+              "status": {
+                "enum": [
+                  "implemented",
+                  "partial",
+                  "planned",
+                  "not_implemented",
+                  "excluded",
+                  "unknown"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "status",
+              "reason"
+            ],
+            "type": "object"
+          },
+          "limitations": {
+            "additionalProperties": false,
+            "properties": {
+              "max_concurrency": {
+                "maximum": 1024,
+                "minimum": 1,
+                "type": "integer"
+              },
+              "max_duration_seconds": {
+                "maximum": 86400,
+                "minimum": 1,
+                "type": "integer"
+              },
+              "max_payload_bytes": {
+                "maximum": 1073741824,
+                "minimum": 1,
+                "type": "integer"
+              },
+              "max_streams": {
+                "maximum": 128,
+                "minimum": 1,
+                "type": "integer"
+              },
+              "max_throughput_bps": {
+                "maximum": 1000000000000,
+                "minimum": 1,
+                "type": "integer"
+              },
+              "reason": {
+                "$ref": "#/components/schemas/CapabilityManifest/$defs/reason_nullable"
+              },
+              "status": {
+                "enum": [
+                  "known",
+                  "unknown",
+                  "not_applicable"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "status",
+              "reason"
+            ],
+            "type": "object"
+          },
+          "permission_requirement": {
+            "additionalProperties": false,
+            "properties": {
+              "permissions": {
+                "items": {
+                  "maxLength": 64,
+                  "minLength": 1,
+                  "pattern": "^[a-z][a-z0-9._-]+$",
+                  "type": "string"
+                },
+                "maxItems": 16,
+                "type": "array",
+                "uniqueItems": true
+              },
+              "reason": {
+                "$ref": "#/components/schemas/CapabilityManifest/$defs/reason_nullable"
+              },
+              "status": {
+                "enum": [
+                  "none",
+                  "required",
+                  "conditional",
+                  "denied",
+                  "restricted",
+                  "unknown",
+                  "not_applicable"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "status",
+              "permissions",
+              "reason"
+            ],
+            "type": "object"
+          },
+          "provider": {
+            "additionalProperties": false,
+            "properties": {
+              "implementations": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "method": {
+                      "maxLength": 64,
+                      "minLength": 1,
+                      "pattern": "^[A-Za-z0-9._-]+$",
+                      "type": "string"
+                    },
+                    "provider_id": {
+                      "maxLength": 64,
+                      "minLength": 3,
+                      "pattern": "^[a-z][a-z0-9.-]+$",
+                      "type": "string"
+                    },
+                    "provider_version": {
+                      "$ref": "#/components/schemas/WTOCommonTypes/$defs/semver"
+                    }
+                  },
+                  "required": [
+                    "provider_id",
+                    "provider_version",
+                    "method"
+                  ],
+                  "type": "object"
+                },
+                "maxItems": 8,
+                "type": "array",
+                "uniqueItems": true
+              },
+              "reason": {
+                "$ref": "#/components/schemas/CapabilityManifest/$defs/reason_nullable"
+              },
+              "status": {
+                "enum": [
+                  "available",
+                  "unavailable",
+                  "unknown",
+                  "not_applicable"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "status",
+              "implementations",
+              "reason"
+            ],
+            "type": "object"
+          },
+          "reason_nullable": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Reason"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "technical_support": {
+            "additionalProperties": false,
+            "properties": {
+              "reason": {
+                "$ref": "#/components/schemas/CapabilityManifest/$defs/reason_nullable"
+              },
+              "status": {
+                "enum": [
+                  "supported",
+                  "conditional",
+                  "unsupported",
+                  "unknown",
+                  "not_applicable"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "status",
+              "reason"
+            ],
+            "type": "object"
+          },
+          "user_interaction": {
+            "additionalProperties": false,
+            "properties": {
+              "reason": {
+                "$ref": "#/components/schemas/CapabilityManifest/$defs/reason_nullable"
+              },
+              "status": {
+                "enum": [
+                  "none",
+                  "required",
+                  "conditional",
+                  "unknown",
+                  "not_applicable"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "status",
+              "reason"
+            ],
+            "type": "object"
+          }
+        },
+        "$id": "https://schemas.wifi-test-orchestrator.example/1.0.0/capability-manifest.schema.json",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "agent_id": {
+            "$ref": "#/components/schemas/WTOCommonTypes/$defs/uuid"
+          },
+          "agent_version": {
+            "$ref": "#/components/schemas/WTOCommonTypes/$defs/semver"
+          },
+          "capabilities": {
+            "allOf": [
+              {
+                "contains": {
+                  "properties": {
+                    "id": {
+                      "const": "wifi.connection.read"
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ],
+                  "type": "object"
+                }
+              },
+              {
+                "contains": {
+                  "properties": {
+                    "id": {
+                      "const": "wifi.scan"
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ],
+                  "type": "object"
+                }
+              },
+              {
+                "contains": {
+                  "properties": {
+                    "id": {
+                      "const": "wifi.rssi.read"
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ],
+                  "type": "object"
+                }
+              },
+              {
+                "contains": {
+                  "properties": {
+                    "id": {
+                      "const": "network.icmp.ping"
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ],
+                  "type": "object"
+                }
+              },
+              {
+                "contains": {
+                  "properties": {
+                    "id": {
+                      "const": "network.tcp.probe"
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ],
+                  "type": "object"
+                }
+              },
+              {
+                "contains": {
+                  "properties": {
+                    "id": {
+                      "const": "network.http.probe"
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ],
+                  "type": "object"
+                }
+              },
+              {
+                "contains": {
+                  "properties": {
+                    "id": {
+                      "const": "traffic.tcp.throughput"
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ],
+                  "type": "object"
+                }
+              },
+              {
+                "contains": {
+                  "properties": {
+                    "id": {
+                      "const": "traffic.udp.throughput"
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ],
+                  "type": "object"
+                }
+              },
+              {
+                "contains": {
+                  "properties": {
+                    "id": {
+                      "const": "traffic.http.download"
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ],
+                  "type": "object"
+                }
+              },
+              {
+                "contains": {
+                  "properties": {
+                    "id": {
+                      "const": "traffic.http.upload"
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ],
+                  "type": "object"
+                }
+              },
+              {
+                "contains": {
+                  "properties": {
+                    "id": {
+                      "const": "traffic.latency_under_load"
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ],
+                  "type": "object"
+                }
+              },
+              {
+                "contains": {
+                  "properties": {
+                    "id": {
+                      "const": "capture.ip"
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ],
+                  "type": "object"
+                }
+              },
+              {
+                "contains": {
+                  "properties": {
+                    "id": {
+                      "const": "capture.ieee80211.monitor"
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ],
+                  "type": "object"
+                }
+              },
+              {
+                "contains": {
+                  "properties": {
+                    "id": {
+                      "const": "traffic.pcap.replay"
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ],
+                  "type": "object"
+                }
+              },
+              {
+                "contains": {
+                  "properties": {
+                    "id": {
+                      "const": "execution.background.continuous"
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ],
+                  "type": "object"
+                }
+              }
+            ],
+            "items": {
+              "$ref": "#/components/schemas/CapabilityManifest/$defs/capability"
+            },
+            "maxItems": 15,
+            "minItems": 15,
+            "type": "array",
+            "uniqueItems": true
+          },
+          "capability_catalog_version": {
+            "const": "1.0.0",
+            "type": "string"
+          },
+          "generated_at": {
+            "$ref": "#/components/schemas/WTOCommonTypes/$defs/utc_timestamp"
+          },
+          "manifest_id": {
+            "$ref": "#/components/schemas/WTOCommonTypes/$defs/uuid"
+          },
+          "manifest_sequence": {
+            "maximum": 9223372036854775807,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "platform": {
+            "$ref": "#/components/schemas/WTOCommonTypes/$defs/platform"
+          },
+          "platform_version": {
+            "maxLength": 64,
+            "minLength": 1,
+            "type": "string"
+          },
+          "protocol_version": {
+            "$ref": "#/components/schemas/WTOCommonTypes/$defs/agent_protocol"
+          },
+          "schema_version": {
+            "$ref": "#/components/schemas/WTOCommonTypes/$defs/schema_version"
+          }
+        },
+        "required": [
+          "schema_version",
+          "manifest_id",
+          "manifest_sequence",
+          "agent_id",
+          "agent_version",
+          "platform",
+          "platform_version",
+          "protocol_version",
+          "capability_catalog_version",
+          "generated_at",
+          "capabilities"
+        ],
+        "title": "CapabilityManifest",
+        "type": "object"
+      },
+      "CredentialMetadata": {
+        "additionalProperties": false,
+        "properties": {
+          "activated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "credential_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "credential_version": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "issued_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "revocation_reason": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "revoked_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "schema_version": {
+            "const": "1.0.0",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "pending",
+              "active",
+              "revoked",
+              "expired"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema_version",
+          "credential_id",
+          "credential_version",
+          "state",
+          "issued_at",
+          "activated_at",
+          "expires_at",
+          "revoked_at",
+          "revocation_reason"
+        ],
+        "type": "object"
+      },
+      "DesktopHeartbeat": {
+        "$id": "https://schemas.wifi-test-orchestrator.example/1.0.0/desktop-heartbeat.schema.json",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "agent_id": {
+            "$ref": "#/components/schemas/WTOCommonTypes/$defs/uuid"
+          },
+          "agent_reported_at": {
+            "$ref": "#/components/schemas/WTOCommonTypes/$defs/utc_timestamp"
+          },
+          "agent_version": {
+            "$ref": "#/components/schemas/WTOCommonTypes/$defs/semver"
+          },
+          "boot_id": {
+            "$ref": "#/components/schemas/WTOCommonTypes/$defs/uuid"
+          },
+          "manifest_digest": {
+            "$ref": "#/components/schemas/WTOCommonTypes/$defs/sha256"
+          },
+          "manifest_id": {
+            "$ref": "#/components/schemas/WTOCommonTypes/$defs/uuid"
+          },
+          "protocol_version": {
+            "$ref": "#/components/schemas/WTOCommonTypes/$defs/agent_protocol"
+          },
+          "readiness": {
+            "enum": [
+              "ready",
+              "degraded",
+              "blocked"
+            ],
+            "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Reason"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "schema_version": {
+            "$ref": "#/components/schemas/WTOCommonTypes/$defs/schema_version"
+          },
+          "sequence": {
+            "maximum": 9223372036854775807,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "schema_version",
+          "agent_id",
+          "boot_id",
+          "sequence",
+          "agent_version",
+          "protocol_version",
+          "agent_reported_at",
+          "readiness",
+          "reason",
+          "manifest_id",
+          "manifest_digest"
+        ],
+        "title": "DesktopHeartbeat",
+        "type": "object"
+      },
+      "EnrollmentTokenCreateRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "allowed_platforms": {
+            "items": {
+              "enum": [
+                "simulated",
+                "windows",
+                "linux",
+                "android",
+                "ios"
+              ],
+              "type": "string"
+            },
+            "maxItems": 5,
+            "type": "array",
+            "uniqueItems": true
+          },
+          "bound_agent_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "expires_in_minutes": {
+            "default": 15,
+            "maximum": 1440,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "scope": {
+            "default": "agent.enroll",
+            "enum": [
+              "agent.enroll",
+              "agent.recover"
+            ],
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "EnrollmentTokenResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "enrollment_token": {
+            "maxLength": 90,
+            "minLength": 90,
+            "pattern": "^wto_enr_1\\.[0-9a-f-]{36}\\.[A-Za-z0-9_-]{43}$",
+            "type": "string",
+            "writeOnly": true
+          },
+          "enrollment_token_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "pattern": "Z$",
+            "type": "string"
+          },
+          "max_uses": {
+            "const": 1,
+            "type": "integer"
+          },
+          "schema_version": {
+            "const": "1.0.0",
+            "type": "string"
+          },
+          "scope": {
+            "enum": [
+              "agent.enroll",
+              "agent.recover"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema_version",
+          "enrollment_token_id",
+          "enrollment_token",
+          "scope",
+          "expires_at",
+          "max_uses"
+        ],
+        "type": "object"
+      },
+      "ErrorEnvelope": {
+        "$id": "https://schemas.wifi-test-orchestrator.example/1.0.0/error-envelope.schema.json",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "error": {
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "maxLength": 64,
+                "minLength": 3,
+                "pattern": "^[a-z][a-z0-9_]+$",
+                "type": "string"
+              },
+              "correlation_id": {
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+                "type": "string"
+              },
+              "details": {
+                "anyOf": [
+                  {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "location": {
+                          "items": {
+                            "maxLength": 64,
+                            "type": "string"
+                          },
+                          "maxItems": 8,
+                          "type": "array"
+                        },
+                        "type": {
+                          "maxLength": 64,
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "location",
+                        "type"
+                      ],
+                      "type": "object"
+                    },
+                    "maxItems": 32,
+                    "type": "array"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "message": {
+                "maxLength": 256,
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "message",
+              "details",
+              "correlation_id"
+            ],
+            "type": "object"
+          },
+          "schema_version": {
+            "$ref": "#/components/schemas/WTOCommonTypes/$defs/schema_version"
+          }
+        },
+        "required": [
+          "schema_version",
+          "error"
+        ],
+        "title": "ErrorEnvelope",
+        "type": "object"
+      },
+      "ManifestAccepted": {
+        "additionalProperties": false,
+        "properties": {
+          "manifest_digest": {
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "manifest_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": "1.0.0",
+            "type": "string"
+          },
+          "server_received_at": {
+            "format": "date-time",
+            "pattern": "Z$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema_version",
+          "manifest_id",
+          "manifest_digest",
+          "server_received_at"
+        ],
+        "type": "object"
+      },
+      "Metric": {
+        "$id": "https://schemas.wifi-test-orchestrator.example/1.0.0/metric.schema.json",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "availability": {
+            "enum": [
+              "measured",
+              "estimated",
+              "unavailable",
+              "unknown",
+              "not_applicable"
+            ],
+            "type": "string"
+          },
+          "confidence": {
+            "enum": [
+              "high",
+              "medium",
+              "low",
+              "unknown",
+              "not_applicable"
+            ],
+            "type": "string"
+          },
+          "metric_id": {
+            "maxLength": 128,
+            "minLength": 3,
+            "pattern": "^[a-z][a-z0-9_.-]+$",
+            "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Reason"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "source": {
+            "additionalProperties": false,
+            "properties": {
+              "method": {
+                "maxLength": 64,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9._-]+$",
+                "type": "string"
+              },
+              "plane": {
+                "enum": [
+                  "control",
+                  "data",
+                  "telemetry",
+                  "artifact",
+                  "integration"
+                ],
+                "type": "string"
+              },
+              "producer": {
+                "maxLength": 64,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9._-]+$",
+                "type": "string"
+              },
+              "version": {
+                "$ref": "#/components/schemas/WTOCommonTypes/$defs/semver"
+              }
+            },
+            "required": [
+              "plane",
+              "producer",
+              "method"
+            ],
+            "type": "object"
+          },
+          "unit": {
+            "maxLength": 32,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9%._/:-]+$",
+            "type": "string"
+          },
+          "value": {
+            "maxLength": 256,
+            "type": [
+              "number",
+              "integer",
+              "boolean",
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "metric_id",
+          "value",
+          "unit",
+          "source",
+          "availability",
+          "confidence",
+          "reason"
+        ],
+        "title": "Metric",
+        "type": "object"
+      },
+      "MobilePresence": {
+        "$id": "https://schemas.wifi-test-orchestrator.example/1.0.0/mobile-presence.schema.json",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "agent_id": {
+            "$ref": "#/components/schemas/WTOCommonTypes/$defs/uuid"
+          },
+          "agent_reported_at": {
+            "$ref": "#/components/schemas/WTOCommonTypes/$defs/utc_timestamp"
+          },
+          "agent_version": {
+            "$ref": "#/components/schemas/WTOCommonTypes/$defs/semver"
+          },
+          "boot_id": {
+            "$ref": "#/components/schemas/WTOCommonTypes/$defs/uuid"
+          },
+          "lifecycle": {
+            "enum": [
+              "foreground",
+              "background_window",
+              "user_initiated"
+            ],
+            "type": "string"
+          },
+          "manifest_digest": {
+            "$ref": "#/components/schemas/WTOCommonTypes/$defs/sha256"
+          },
+          "manifest_id": {
+            "$ref": "#/components/schemas/WTOCommonTypes/$defs/uuid"
+          },
+          "protocol_version": {
+            "$ref": "#/components/schemas/WTOCommonTypes/$defs/agent_protocol"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Reason"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "schema_version": {
+            "$ref": "#/components/schemas/WTOCommonTypes/$defs/schema_version"
+          },
+          "sequence": {
+            "maximum": 9223372036854775807,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "schema_version",
+          "agent_id",
+          "boot_id",
+          "sequence",
+          "agent_version",
+          "protocol_version",
+          "agent_reported_at",
+          "lifecycle",
+          "reason",
+          "manifest_id",
+          "manifest_digest"
+        ],
+        "title": "MobilePresence",
+        "type": "object"
+      },
+      "PresenceResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "accepted_sequence": {
+            "maximum": 18446744073709551615,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "poll_after_seconds": {
+            "maximum": 900,
+            "minimum": 15,
+            "type": "integer"
+          },
+          "presence_expires_at": {
+            "format": "date-time",
+            "pattern": "Z$",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": "1.0.0",
+            "type": "string"
+          },
+          "server_received_at": {
+            "format": "date-time",
+            "pattern": "Z$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema_version",
+          "accepted_sequence",
+          "server_received_at",
+          "presence_expires_at",
+          "poll_after_seconds"
+        ],
+        "type": "object"
+      },
+      "ProgressEvent": {
+        "$id": "https://schemas.wifi-test-orchestrator.example/1.0.0/progress-event.schema.json",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "event_id": {
+            "$ref": "#/components/schemas/WTOCommonTypes/$defs/uuid"
+          },
+          "event_type": {
+            "enum": [
+              "accepted",
+              "started",
+              "running",
+              "blocked",
+              "skipped",
+              "completed"
+            ],
+            "type": "string"
+          },
+          "execution_id": {
+            "$ref": "#/components/schemas/WTOCommonTypes/$defs/uuid"
+          },
+          "idempotency_key": {
+            "$ref": "#/components/schemas/WTOCommonTypes/$defs/idempotency_key"
+          },
+          "occurred_at": {
+            "$ref": "#/components/schemas/WTOCommonTypes/$defs/utc_timestamp"
+          },
+          "progress_percent": {
+            "maximum": 100,
+            "minimum": 0,
+            "type": "number"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Reason"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "schema_version": {
+            "$ref": "#/components/schemas/WTOCommonTypes/$defs/schema_version"
+          },
+          "sequence": {
+            "maximum": 9223372036854775807,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "task_id": {
+            "$ref": "#/components/schemas/WTOCommonTypes/$defs/uuid"
+          }
+        },
+        "required": [
+          "schema_version",
+          "event_id",
+          "task_id",
+          "execution_id",
+          "sequence",
+          "event_type",
+          "occurred_at",
+          "progress_percent",
+          "reason",
+          "idempotency_key"
+        ],
+        "title": "ProgressEvent",
+        "type": "object"
+      },
+      "Reason": {
+        "$id": "https://schemas.wifi-test-orchestrator.example/1.0.0/reason.schema.json",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "maxProperties": 2,
+        "properties": {
+          "code": {
+            "enum": [
+              "not_exposed_by_platform",
+              "not_implemented",
+              "permission_missing",
+              "permission_denied",
+              "user_interaction_required",
+              "lifecycle_restricted",
+              "provider_unavailable",
+              "policy_denied",
+              "not_applicable",
+              "unknown",
+              "incompatible_version",
+              "agent_revoked",
+              "expired",
+              "blocked",
+              "skipped"
+            ],
+            "type": "string"
+          },
+          "detail": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "code"
+        ],
+        "title": "Reason",
+        "type": "object"
+      },
+      "RotationActivateResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "activated_at": {
+            "format": "date-time",
+            "pattern": "Z$",
+            "type": "string"
+          },
+          "credential_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "credential_version": {
+            "maximum": 2147483647,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "rotation_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": "1.0.0",
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema_version",
+          "rotation_id",
+          "credential_id",
+          "credential_version",
+          "activated_at"
+        ],
+        "type": "object"
+      },
+      "RotationCreateResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "expires_at": {
+            "format": "date-time",
+            "pattern": "Z$",
+            "type": "string"
+          },
+          "pending_credential": {
+            "$ref": "#/components/schemas/AgentCredential"
+          },
+          "rotation_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": "1.0.0",
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema_version",
+          "rotation_id",
+          "expires_at",
+          "pending_credential"
+        ],
+        "type": "object"
+      },
+      "RotationRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "idempotency_key": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": "1.0.0",
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema_version",
+          "idempotency_key"
+        ],
+        "type": "object"
+      },
+      "TaskEnvelope": {
+        "$id": "https://schemas.wifi-test-orchestrator.example/1.0.0/task-envelope.schema.json",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "execution_id": {
+            "$ref": "#/components/schemas/WTOCommonTypes/$defs/uuid"
+          },
+          "expires_at": {
+            "$ref": "#/components/schemas/WTOCommonTypes/$defs/utc_timestamp"
+          },
+          "foreground_requirement": {
+            "enum": [
+              "not_required",
+              "required",
+              "required_on_mobile"
+            ],
+            "type": "string"
+          },
+          "idempotency_key": {
+            "$ref": "#/components/schemas/WTOCommonTypes/$defs/idempotency_key"
+          },
+          "issued_at": {
+            "$ref": "#/components/schemas/WTOCommonTypes/$defs/utc_timestamp"
+          },
+          "not_before": {
+            "$ref": "#/components/schemas/WTOCommonTypes/$defs/utc_timestamp"
+          },
+          "protocol_version": {
+            "$ref": "#/components/schemas/WTOCommonTypes/$defs/agent_protocol"
+          },
+          "required_capabilities": {
+            "items": {
+              "$ref": "#/components/schemas/WTOCommonTypes/$defs/capability_id"
+            },
+            "maxItems": 15,
+            "minItems": 1,
+            "type": "array",
+            "uniqueItems": true
+          },
+          "schema_version": {
+            "$ref": "#/components/schemas/WTOCommonTypes/$defs/schema_version"
+          },
+          "task_id": {
+            "$ref": "#/components/schemas/WTOCommonTypes/$defs/uuid"
+          },
+          "task_type": {
+            "const": "protocol.contract_check",
+            "type": "string"
+          },
+          "task_type_version": {
+            "const": "1.0.0",
+            "type": "string"
+          },
+          "user_interaction_requirement": {
+            "enum": [
+              "none",
+              "possible",
+              "required"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema_version",
+          "protocol_version",
+          "task_id",
+          "execution_id",
+          "task_type",
+          "task_type_version",
+          "issued_at",
+          "not_before",
+          "expires_at",
+          "idempotency_key",
+          "required_capabilities",
+          "foreground_requirement",
+          "user_interaction_requirement"
+        ],
+        "title": "TaskEnvelope",
+        "type": "object"
+      },
+      "TestResult": {
+        "$id": "https://schemas.wifi-test-orchestrator.example/1.0.0/test-result.schema.json",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "execution_id": {
+            "$ref": "#/components/schemas/WTOCommonTypes/$defs/uuid"
+          },
+          "finished_at": {
+            "$ref": "#/components/schemas/WTOCommonTypes/$defs/utc_timestamp"
+          },
+          "idempotency_key": {
+            "$ref": "#/components/schemas/WTOCommonTypes/$defs/idempotency_key"
+          },
+          "metrics": {
+            "items": {
+              "$ref": "#/components/schemas/Metric"
+            },
+            "maxItems": 128,
+            "type": "array"
+          },
+          "outcome": {
+            "enum": [
+              "pass",
+              "fail",
+              "inconclusive",
+              "not_evaluated"
+            ],
+            "type": "string"
+          },
+          "provider": {
+            "additionalProperties": false,
+            "properties": {
+              "method": {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              },
+              "provider_id": {
+                "maxLength": 64,
+                "minLength": 3,
+                "pattern": "^[a-z][a-z0-9.-]+$",
+                "type": "string"
+              },
+              "provider_version": {
+                "$ref": "#/components/schemas/WTOCommonTypes/$defs/semver"
+              }
+            },
+            "required": [
+              "provider_id",
+              "provider_version",
+              "method"
+            ],
+            "type": "object"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Reason"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "result_id": {
+            "$ref": "#/components/schemas/WTOCommonTypes/$defs/uuid"
+          },
+          "schema_version": {
+            "$ref": "#/components/schemas/WTOCommonTypes/$defs/schema_version"
+          },
+          "started_at": {
+            "$ref": "#/components/schemas/WTOCommonTypes/$defs/utc_timestamp"
+          },
+          "status": {
+            "enum": [
+              "completed",
+              "failed",
+              "blocked",
+              "skipped"
+            ],
+            "type": "string"
+          },
+          "task_id": {
+            "$ref": "#/components/schemas/WTOCommonTypes/$defs/uuid"
+          }
+        },
+        "required": [
+          "schema_version",
+          "result_id",
+          "task_id",
+          "execution_id",
+          "status",
+          "outcome",
+          "started_at",
+          "finished_at",
+          "provider",
+          "metrics",
+          "idempotency_key",
+          "reason"
+        ],
+        "title": "TestResult",
+        "type": "object"
+      },
+      "WTOCommonTypes": {
+        "$defs": {
+          "agent_protocol": {
+            "const": "1.0.0",
+            "type": "string"
+          },
+          "capability_id": {
+            "enum": [
+              "wifi.connection.read",
+              "wifi.scan",
+              "wifi.rssi.read",
+              "network.icmp.ping",
+              "network.tcp.probe",
+              "network.http.probe",
+              "traffic.tcp.throughput",
+              "traffic.udp.throughput",
+              "traffic.http.download",
+              "traffic.http.upload",
+              "traffic.latency_under_load",
+              "capture.ip",
+              "capture.ieee80211.monitor",
+              "traffic.pcap.replay",
+              "execution.background.continuous"
+            ],
+            "type": "string"
+          },
+          "idempotency_key": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/WTOCommonTypes/$defs/uuid"
+              }
+            ]
+          },
+          "platform": {
+            "enum": [
+              "simulated",
+              "windows",
+              "linux",
+              "android",
+              "ios"
+            ],
+            "type": "string"
+          },
+          "schema_version": {
+            "const": "1.0.0",
+            "type": "string"
+          },
+          "semver": {
+            "maxLength": 32,
+            "minLength": 5,
+            "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]{1,16})?$",
+            "type": "string"
+          },
+          "sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "utc_timestamp": {
+            "format": "date-time",
+            "maxLength": 32,
+            "pattern": "Z$",
+            "type": "string"
+          },
+          "uuid": {
+            "format": "uuid",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+            "type": "string"
+          }
+        },
+        "$id": "https://schemas.wifi-test-orchestrator.example/1.0.0/common.schema.json",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "title": "WTO Common Types"
+      }
+    },
+    "securitySchemes": {
+      "AgentBearerAuth": {
+        "bearerFormat": "WTO-AgentCredential-v1",
+        "scheme": "bearer",
+        "type": "http"
+      },
+      "AgentPendingCredentialAuth": {
+        "bearerFormat": "WTO-PendingAgentCredential-v1",
+        "scheme": "bearer",
+        "type": "http"
+      },
+      "UserBearerAuth": {
+        "bearerFormat": "JWT",
+        "scheme": "bearer",
+        "type": "http"
+      },
+      "UserRefreshCookie": {
+        "in": "cookie",
+        "name": "wto_refresh",
+        "type": "apiKey"
+      }
+    }
+  },
+  "info": {
+    "description": "Canonical Phase 04 API. Internal Phase 03 operations remain explicitly provisional.",
+    "title": "WiFi Test Orchestrator API",
+    "version": "0.1.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/internal/v1/admin/protected": {
+      "get": {
+        "operationId": "protectedDemo",
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/JsonSuccess"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "UserBearerAuth": []
+          }
+        ],
+        "tags": [
+          "internal-administration"
+        ],
+        "x-wto-stability": "provisional"
+      }
+    },
+    "/api/internal/v1/admin/users": {
+      "get": {
+        "operationId": "listUsers",
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/JsonSuccess"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "UserBearerAuth": []
+          }
+        ],
+        "tags": [
+          "internal-administration"
+        ],
+        "x-wto-stability": "provisional"
+      },
+      "post": {
+        "operationId": "createUser",
+        "requestBody": {
+          "$ref": "#/components/requestBodies/EnrollmentTokenCreate"
+        },
+        "responses": {
+          "201": {
+            "$ref": "#/components/responses/EnrollmentTokenCreated"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "UserBearerAuth": []
+          }
+        ],
+        "tags": [
+          "internal-administration"
+        ],
+        "x-wto-stability": "provisional"
+      }
+    },
+    "/api/internal/v1/admin/users/{user_id}": {
+      "patch": {
+        "operationId": "updateUser",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/UserId"
+          }
+        ],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/GenericJson"
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/JsonSuccess"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "UserBearerAuth": []
+          }
+        ],
+        "tags": [
+          "internal-administration"
+        ],
+        "x-wto-stability": "provisional"
+      }
+    },
+    "/api/internal/v1/admin/users/{user_id}/revoke-sessions": {
+      "post": {
+        "operationId": "revokeUserSessions",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/UserId"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Sessions revoked",
+            "headers": {
+              "X-Correlation-ID": {
+                "$ref": "#/components/headers/CorrelationId"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "UserBearerAuth": []
+          }
+        ],
+        "tags": [
+          "internal-administration"
+        ],
+        "x-wto-stability": "provisional"
+      }
+    },
+    "/api/internal/v1/admin/users/{user_id}/roles/{role_key}": {
+      "delete": {
+        "operationId": "removeRole",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/UserId"
+          },
+          {
+            "$ref": "#/components/parameters/RoleKey"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Role removed",
+            "headers": {
+              "X-Correlation-ID": {
+                "$ref": "#/components/headers/CorrelationId"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "UserBearerAuth": []
+          }
+        ],
+        "tags": [
+          "internal-administration"
+        ],
+        "x-wto-stability": "provisional"
+      },
+      "put": {
+        "operationId": "assignRole",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/UserId"
+          },
+          {
+            "$ref": "#/components/parameters/RoleKey"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Role assigned",
+            "headers": {
+              "X-Correlation-ID": {
+                "$ref": "#/components/headers/CorrelationId"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "UserBearerAuth": []
+          }
+        ],
+        "tags": [
+          "internal-administration"
+        ],
+        "x-wto-stability": "provisional"
+      }
+    },
+    "/api/internal/v1/audit/events": {
+      "get": {
+        "operationId": "listAuditEvents",
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/JsonSuccess"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "UserBearerAuth": []
+          }
+        ],
+        "tags": [
+          "internal-audit"
+        ],
+        "x-wto-stability": "provisional"
+      }
+    },
+    "/api/internal/v1/auth/change-password": {
+      "post": {
+        "operationId": "userChangePassword",
+        "requestBody": {
+          "$ref": "#/components/requestBodies/GenericJson"
+        },
+        "responses": {
+          "204": {
+            "description": "Password changed",
+            "headers": {
+              "X-Correlation-ID": {
+                "$ref": "#/components/headers/CorrelationId"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "UserBearerAuth": []
+          }
+        ],
+        "tags": [
+          "internal-auth"
+        ],
+        "x-wto-stability": "provisional"
+      }
+    },
+    "/api/internal/v1/auth/login": {
+      "post": {
+        "operationId": "userLogin",
+        "requestBody": {
+          "$ref": "#/components/requestBodies/GenericJson"
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/JsonSuccess"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "tags": [
+          "internal-auth"
+        ],
+        "x-wto-stability": "provisional"
+      }
+    },
+    "/api/internal/v1/auth/logout": {
+      "post": {
+        "operationId": "userLogout",
+        "responses": {
+          "204": {
+            "description": "Logged out",
+            "headers": {
+              "X-Correlation-ID": {
+                "$ref": "#/components/headers/CorrelationId"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "UserBearerAuth": [],
+            "UserRefreshCookie": []
+          }
+        ],
+        "tags": [
+          "internal-auth"
+        ],
+        "x-wto-stability": "provisional"
+      }
+    },
+    "/api/internal/v1/auth/logout-all": {
+      "post": {
+        "operationId": "userLogoutAll",
+        "responses": {
+          "204": {
+            "description": "Sessions revoked",
+            "headers": {
+              "X-Correlation-ID": {
+                "$ref": "#/components/headers/CorrelationId"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "UserBearerAuth": []
+          }
+        ],
+        "tags": [
+          "internal-auth"
+        ],
+        "x-wto-stability": "provisional"
+      }
+    },
+    "/api/internal/v1/auth/me": {
+      "get": {
+        "operationId": "userMe",
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/JsonSuccess"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "UserBearerAuth": []
+          }
+        ],
+        "tags": [
+          "internal-auth"
+        ],
+        "x-wto-stability": "provisional"
+      }
+    },
+    "/api/internal/v1/auth/refresh": {
+      "post": {
+        "operationId": "userRefresh",
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/JsonSuccess"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "UserRefreshCookie": []
+          }
+        ],
+        "tags": [
+          "internal-auth"
+        ],
+        "x-wto-stability": "provisional"
+      }
+    },
+    "/api/internal/v1/rbac/permissions": {
+      "get": {
+        "operationId": "listPermissions",
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/JsonSuccess"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "UserBearerAuth": []
+          }
+        ],
+        "tags": [
+          "internal-rbac"
+        ],
+        "x-wto-stability": "provisional"
+      }
+    },
+    "/api/internal/v1/rbac/roles": {
+      "get": {
+        "operationId": "listRoles",
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/JsonSuccess"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "UserBearerAuth": []
+          }
+        ],
+        "tags": [
+          "internal-rbac"
+        ],
+        "x-wto-stability": "provisional"
+      }
+    },
+    "/api/v1/agent-enrollments": {
+      "post": {
+        "operationId": "registerAgent",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          },
+          {
+            "$ref": "#/components/parameters/CorrelationIdRequest"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentRegistrationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentRegistrationResponse"
+                }
+              }
+            },
+            "description": "Agent registered",
+            "headers": {
+              "X-Correlation-ID": {
+                "$ref": "#/components/headers/CorrelationId"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "tags": [
+          "agent-enrollment"
+        ]
+      }
+    },
+    "/api/v1/agents/self/capability-manifest": {
+      "put": {
+        "operationId": "publishCapabilityManifest",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/AgentTimestamp"
+          },
+          {
+            "$ref": "#/components/parameters/AgentNonce"
+          },
+          {
+            "$ref": "#/components/parameters/AgentProtocol"
+          },
+          {
+            "$ref": "#/components/parameters/CorrelationIdRequest"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CapabilityManifest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/ManifestAccepted"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "426": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "AgentBearerAuth": []
+          }
+        ],
+        "tags": [
+          "agent-protocol"
+        ]
+      }
+    },
+    "/api/v1/agents/self/credential-rotations": {
+      "post": {
+        "operationId": "createAgentCredentialRotation",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/AgentTimestamp"
+          },
+          {
+            "$ref": "#/components/parameters/AgentNonce"
+          },
+          {
+            "$ref": "#/components/parameters/AgentProtocol"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          },
+          {
+            "$ref": "#/components/parameters/CorrelationIdRequest"
+          }
+        ],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/RotationCreate"
+        },
+        "responses": {
+          "201": {
+            "$ref": "#/components/responses/RotationCreated"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "AgentBearerAuth": []
+          }
+        ],
+        "tags": [
+          "agent-protocol"
+        ]
+      }
+    },
+    "/api/v1/agents/self/credential-rotations/{rotation_id}/activate": {
+      "post": {
+        "operationId": "activateAgentCredentialRotation",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RotationId"
+          },
+          {
+            "$ref": "#/components/parameters/AgentTimestamp"
+          },
+          {
+            "$ref": "#/components/parameters/AgentNonce"
+          },
+          {
+            "$ref": "#/components/parameters/AgentProtocol"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          },
+          {
+            "$ref": "#/components/parameters/CorrelationIdRequest"
+          }
+        ],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/RotationActivate"
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/RotationActivated"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "AgentPendingCredentialAuth": []
+          }
+        ],
+        "tags": [
+          "agent-protocol"
+        ]
+      }
+    },
+    "/api/v1/agents/self/heartbeats": {
+      "post": {
+        "operationId": "desktopHeartbeat",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/AgentTimestamp"
+          },
+          {
+            "$ref": "#/components/parameters/AgentNonce"
+          },
+          {
+            "$ref": "#/components/parameters/AgentProtocol"
+          },
+          {
+            "$ref": "#/components/parameters/CorrelationIdRequest"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DesktopHeartbeat"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/PresenceAccepted"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "AgentBearerAuth": []
+          }
+        ],
+        "tags": [
+          "agent-protocol"
+        ]
+      }
+    },
+    "/api/v1/agents/self/presence": {
+      "post": {
+        "operationId": "mobilePresence",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/AgentTimestamp"
+          },
+          {
+            "$ref": "#/components/parameters/AgentNonce"
+          },
+          {
+            "$ref": "#/components/parameters/AgentProtocol"
+          },
+          {
+            "$ref": "#/components/parameters/CorrelationIdRequest"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MobilePresence"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/PresenceAccepted"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "AgentBearerAuth": []
+          }
+        ],
+        "tags": [
+          "agent-protocol"
+        ]
+      }
+    },
+    "/api/v1/agents/{agent_id}/credentials": {
+      "get": {
+        "operationId": "listAgentCredentials",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/AgentId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/CredentialMetadataList"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "UserBearerAuth": []
+          }
+        ],
+        "tags": [
+          "agent-administration"
+        ]
+      }
+    },
+    "/api/v1/agents/{agent_id}/credentials/{credential_id}/revoke": {
+      "post": {
+        "operationId": "revokeAgentCredential",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/AgentId"
+          },
+          {
+            "$ref": "#/components/parameters/CredentialId"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Credential revoked",
+            "headers": {
+              "X-Correlation-ID": {
+                "$ref": "#/components/headers/CorrelationId"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "UserBearerAuth": []
+          }
+        ],
+        "tags": [
+          "agent-administration"
+        ]
+      }
+    },
+    "/api/v1/agents/{agent_id}/recovery-enrollment-tokens": {
+      "post": {
+        "operationId": "createRecoveryEnrollmentToken",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/AgentId"
+          }
+        ],
+        "responses": {
+          "201": {
+            "$ref": "#/components/responses/EnrollmentTokenCreated"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "UserBearerAuth": []
+          }
+        ],
+        "tags": [
+          "agent-enrollment"
+        ]
+      }
+    },
+    "/api/v1/agents/{agent_id}/revoke": {
+      "post": {
+        "operationId": "revokeAgent",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/AgentId"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Agent revoked",
+            "headers": {
+              "X-Correlation-ID": {
+                "$ref": "#/components/headers/CorrelationId"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "UserBearerAuth": []
+          }
+        ],
+        "tags": [
+          "agent-administration"
+        ]
+      }
+    },
+    "/api/v1/enrollment-tokens": {
+      "post": {
+        "operationId": "createEnrollmentToken",
+        "requestBody": {
+          "$ref": "#/components/requestBodies/GenericJson"
+        },
+        "responses": {
+          "201": {
+            "$ref": "#/components/responses/JsonSuccess"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "UserBearerAuth": []
+          }
+        ],
+        "tags": [
+          "agent-enrollment"
+        ]
+      }
+    },
+    "/api/v1/enrollment-tokens/{token_id}/revoke": {
+      "post": {
+        "operationId": "revokeEnrollmentToken",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TokenId"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Token revoked",
+            "headers": {
+              "X-Correlation-ID": {
+                "$ref": "#/components/headers/CorrelationId"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "UserBearerAuth": []
+          }
+        ],
+        "tags": [
+          "agent-enrollment"
+        ]
+      }
+    },
+    "/health/live": {
+      "get": {
+        "operationId": "healthLive",
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/JsonSuccess"
+          }
+        },
+        "tags": [
+          "health"
+        ]
+      }
+    },
+    "/health/ready": {
+      "get": {
+        "operationId": "healthReady",
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/JsonSuccess"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "tags": [
+          "health"
+        ]
+      }
+    }
+  },
+  "servers": [
+    {
+      "url": "/"
+    }
+  ]
+}

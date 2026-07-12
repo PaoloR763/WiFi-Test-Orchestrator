@@ -1,4 +1,4 @@
-.PHONY: up down logs build lint format-check typecheck test test-integration smoke migrate seed validate reset
+.PHONY: up down logs build lint format-check typecheck test test-integration contracts smoke migrate seed validate reset
 
 up:
 	sh scripts/dev.sh up
@@ -26,6 +26,9 @@ test:
 
 test-integration:
 	sh scripts/dev.sh test-integration
+
+contracts:
+	sh scripts/dev.sh contracts
 
 smoke:
 	sh scripts/dev.sh smoke

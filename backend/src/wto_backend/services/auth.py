@@ -114,7 +114,10 @@ class AuthService:
             resource_id=auth_session.id,
             outcome="success",
             correlation_id=correlation_id,
-            metadata={"session_id": str(auth_session.id), "ip_fingerprint": ip_fingerprint},
+            metadata={
+                "session_id": str(auth_session.id),
+                "ip_fingerprint": ip_fingerprint,
+            },
         )
         access = self.tokens.issue_access(
             user_id=user.id, session_id=auth_session.id, auth_version=user.auth_version

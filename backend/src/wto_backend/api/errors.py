@@ -8,6 +8,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from wto_backend.contracts import ContractValidationError
 from wto_backend.logging import correlation_id_context
 from wto_backend.services.errors import DomainError
 
@@ -26,12 +27,13 @@ def error_response(
     return JSONResponse(
         status_code=status_code,
         content={
+            "schema_version": "1.0.0",
             "error": {
                 "code": code,
                 "message": message,
                 "details": details,
                 "correlation_id": correlation_id,
-            }
+            },
         },
         headers=headers,
     )
@@ -52,8 +54,13 @@ def install_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(DomainError)
     async def domain_error(_: Request, error: DomainError) -> JSONResponse:
         headers = {"WWW-Authenticate": "Bearer"} if error.status_code == 401 else None
+        if error.code == "idempotency_in_progress":
+            headers = {"Retry-After": "1"}
         return error_response(
-            status_code=error.status_code, code=error.code, message=error.message, headers=headers
+            status_code=error.status_code,
+            code=error.code,
+            message=error.message,
+            headers=headers,
         )
 
     @app.exception_handler(RequestValidationError)
@@ -67,6 +74,15 @@ def install_error_handlers(app: FastAPI) -> None:
             code="request_validation_failed",
             message="The request is invalid.",
             details=details,
+        )
+
+    @app.exception_handler(ContractValidationError)
+    async def contract_validation_error(_: Request, error: ContractValidationError) -> JSONResponse:
+        return error_response(
+            status_code=422,
+            code="contract_validation_failed",
+            message="The request does not conform to the normative contract.",
+            details=error.errors,
         )
 
     @app.exception_handler(Exception)

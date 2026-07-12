@@ -10,7 +10,11 @@ from wto_backend.audit import write_audit
 from wto_backend.domain.models import AuthSession, Role, User, UserRole
 from wto_backend.repositories.identity import IdentityRepository
 from wto_backend.security.passwords import PasswordManager
-from wto_backend.services.errors import ConflictError, LastAdministratorError, ResourceNotFoundError
+from wto_backend.services.errors import (
+    ConflictError,
+    LastAdministratorError,
+    ResourceNotFoundError,
+)
 
 ADMIN_LOCK_ID = 87003001
 

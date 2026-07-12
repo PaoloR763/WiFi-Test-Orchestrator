@@ -39,8 +39,8 @@ services:
 
   backend:
     build:
-      context: backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: backend/Dockerfile
       target: runtime
     env_file:
       - .env
@@ -50,6 +50,9 @@ services:
       WTO_POSTGRES_HOST: postgres
       WTO_REDIS_HOST: redis
       WTO_ARTIFACT_ROOT: /var/lib/wto/artifacts
+      WTO_ENROLLMENT_TOKEN_HMAC_KEY: "${WTO_ENROLLMENT_TOKEN_HMAC_KEY}"
+      WTO_AGENT_CREDENTIAL_HMAC_KEY: "${WTO_AGENT_CREDENTIAL_HMAC_KEY}"
+      WTO_SECRET_REPLAY_ENCRYPTION_KEY: "${WTO_SECRET_REPLAY_ENCRYPTION_KEY}"
     command:
       - /bin/sh
       - -c
@@ -80,8 +83,8 @@ services:
 
   worker:
     build:
-      context: backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: backend/Dockerfile
       target: runtime
     hostname: worker
     env_file:
@@ -92,6 +95,9 @@ services:
       WTO_POSTGRES_HOST: postgres
       WTO_REDIS_HOST: redis
       WTO_ARTIFACT_ROOT: /var/lib/wto/artifacts
+      WTO_ENROLLMENT_TOKEN_HMAC_KEY: "${WTO_ENROLLMENT_TOKEN_HMAC_KEY}"
+      WTO_AGENT_CREDENTIAL_HMAC_KEY: "${WTO_AGENT_CREDENTIAL_HMAC_KEY}"
+      WTO_SECRET_REPLAY_ENCRYPTION_KEY: "${WTO_SECRET_REPLAY_ENCRYPTION_KEY}"
     command:
       - celery
       - --quiet
@@ -176,12 +182,13 @@ services:
 
   simulated-agent:
     build:
-      context: agents/simulated
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: agents/simulated/Dockerfile
     env_file:
       - .env
     environment:
       SIM_BACKEND_URL: http://backend:8000
+      SIM_ENROLLMENT_TOKEN: "${SIM_ENROLLMENT_TOKEN:-}"
     depends_on:
       backend:
         condition: service_healthy
@@ -202,8 +209,8 @@ services:
   backend-tools:
     profiles: ["tools"]
     build:
-      context: backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: backend/Dockerfile
       target: test
     env_file:
       - .env
@@ -216,6 +223,9 @@ services:
       WTO_ARTIFACT_ROOT: /tmp/wto-test-artifacts
       WTO_ALLOWED_ORIGIN: https://testserver
       WTO_TRUSTED_PROXY_CIDRS: 127.0.0.1/32
+      WTO_ENROLLMENT_TOKEN_HMAC_KEY: "${WTO_ENROLLMENT_TOKEN_HMAC_KEY}"
+      WTO_AGENT_CREDENTIAL_HMAC_KEY: "${WTO_AGENT_CREDENTIAL_HMAC_KEY}"
+      WTO_SECRET_REPLAY_ENCRYPTION_KEY: "${WTO_SECRET_REPLAY_ENCRYPTION_KEY}"
     depends_on:
       postgres-test:
         condition: service_healthy
@@ -264,6 +274,27 @@ services:
       dockerfile: Dockerfile
       target: tools
     working_dir: /app
+    network_mode: none
+
+  contracts-typescript:
+    profiles: ["contracts"]
+    build:
+      context: .
+      dockerfile: shared/contracts/consumers/typescript/Dockerfile
+    network_mode: none
+
+  contracts-kotlin:
+    profiles: ["contracts"]
+    build:
+      context: .
+      dockerfile: shared/contracts/consumers/kotlin/Dockerfile
+    network_mode: none
+
+  contracts-swift:
+    profiles: ["contracts"]
+    build:
+      context: .
+      dockerfile: shared/contracts/consumers/swift/Dockerfile
     network_mode: none
 
 networks:

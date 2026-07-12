@@ -37,3 +37,17 @@ def test_logs_redact_secrets() -> None:
     assert "also-secret" not in rendered
     assert "Bearer-value" not in rendered
     assert rendered.count("[REDACTED]") == 3
+
+
+def test_logs_redact_phase04_machine_secrets() -> None:
+    stream = io.StringIO()
+    configure_logging(service="backend-test", environment="test", level="INFO", stream=stream)
+    logging.getLogger("test.logger").warning(
+        "enrollment_token=wto_enr_1.synthetic agent_credential=wto_ac_1.synthetic "
+        "ciphertext=abcd nonce=efgh"
+    )
+    rendered = stream.getvalue()
+    assert "wto_enr_1" not in rendered
+    assert "wto_ac_1" not in rendered
+    assert "abcd" not in rendered
+    assert "efgh" not in rendered

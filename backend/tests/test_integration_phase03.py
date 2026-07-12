@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import json
 import os
+import secrets
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
+from datetime import UTC, datetime, timedelta
+from uuid import UUID, uuid4
 
 import pytest
 from alembic import command
@@ -13,14 +17,28 @@ from sqlalchemy import create_engine, select, text
 from sqlalchemy.exc import DBAPIError
 
 from wto_backend.config import Settings, get_settings
+from wto_backend.contracts import canonical_json, contract_root
 from wto_backend.db.session import Database
-from wto_backend.domain.models import AuditLog, AuthSession, RefreshToken, Role, User
+from wto_backend.domain.models import (
+    AgentCredential,
+    AgentCredentialRotation,
+    AuditLog,
+    AuthSession,
+    EnrollmentToken,
+    IdempotencyRecord,
+    RefreshToken,
+    Role,
+    SecretReplay,
+    User,
+)
 from wto_backend.main import create_app
+from wto_backend.security.agent_credentials import parse_machine_secret
 from wto_backend.security.passwords import PasswordManager
 from wto_backend.security.tokens import TokenManager
 from wto_backend.services.auth import AuthService
 from wto_backend.services.bootstrap import bootstrap_administrator
 from wto_backend.services.errors import InvalidSessionError, LastAdministratorError
+from wto_backend.services.idempotency import IdempotencyService
 from wto_backend.services.rbac import UserAdministrationService
 from wto_backend.services.seeds import seed_rbac
 
@@ -33,7 +51,9 @@ pytestmark = [
 ]
 
 ALL_TABLES = (
-    "enrollment_tokens, artifacts, metrics, executions, campaigns, test_definitions, "
+    "agent_presence, capability_manifests, secret_replays, idempotency_records, "
+    "agent_credential_rotations, agent_credentials, enrollment_tokens, artifacts, "
+    "metrics, executions, campaigns, test_definitions, "
     "capabilities, agents, devices, refresh_tokens, sessions, role_permissions, "
     "user_roles, audit_logs, permissions, roles, users"
 )
@@ -105,7 +125,7 @@ def test_migration_upgrade_downgrade_reupgrade(settings: Settings) -> None:
     command.upgrade(alembic_config(), "head")
     database = Database(get_settings().migration_database_url)
     with database.engine.connect() as connection:
-        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "20260712_0003"
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "20260712_0004"
         assert connection.scalar(text("SELECT to_regclass('public.audit_logs')")) == "audit_logs"
     database.close()
 
@@ -196,7 +216,8 @@ def test_csrf_rbac_role_removal_logout_and_password_change(
     assert client.post("/api/internal/v1/auth/refresh").status_code == 403
     assert (
         client.post(
-            "/api/internal/v1/auth/refresh", headers={"Origin": "https://attacker.invalid"}
+            "/api/internal/v1/auth/refresh",
+            headers={"Origin": "https://attacker.invalid"},
         ).status_code
         == 403
     )
@@ -267,7 +288,8 @@ def test_last_admin_trigger_and_runtime_privileges(settings: Settings) -> None:
         assert privileges == (False, False)
         with pytest.raises(DBAPIError):
             session.execute(
-                text("UPDATE audit_logs SET outcome='failure' WHERE id=:id"), {"id": event.id}
+                text("UPDATE audit_logs SET outcome='failure' WHERE id=:id"),
+                {"id": event.id},
             )
             session.commit()
         session.rollback()
@@ -438,7 +460,8 @@ def test_last_administrator_is_preserved_under_concurrency(settings: Settings) -
                 actor = session.scalar(select(User).where(User.id == admin_id))
                 assert actor is not None
                 service = UserAdministrationService(
-                    session, PasswordManager(memory_cost=65536, time_cost=3, parallelism=1)
+                    session,
+                    PasswordManager(memory_cost=65536, time_cost=3, parallelism=1),
                 )
                 try:
                     if operation == "disable":
@@ -463,3 +486,501 @@ def test_last_administrator_is_preserved_under_concurrency(settings: Settings) -
     with ThreadPoolExecutor(max_workers=2) as executor:
         results = list(executor.map(mutate, ("disable", "remove")))
     assert results == ["preserved", "preserved"]
+
+
+def agent_headers(
+    credential: str, *, nonce: str | None = None, timestamp: datetime | None = None
+) -> dict[str, str]:
+    now = timestamp or datetime.now(UTC)
+    return {
+        "Authorization": f"Bearer {credential}",
+        "X-WTO-Agent-Timestamp": now.isoformat().replace("+00:00", "Z"),
+        "X-WTO-Agent-Nonce": nonce or secrets.token_urlsafe(16),
+        "X-WTO-Agent-Protocol": "1.0.0",
+        "X-Correlation-ID": str(uuid4()),
+    }
+
+
+def create_enrollment_token(
+    client: TestClient, access: str, *, scope: str = "agent.enroll"
+) -> dict[str, object]:
+    response = client.post(
+        "/api/v1/enrollment-tokens",
+        headers=auth_headers(access),
+        json={
+            "scope": scope,
+            "expires_in_minutes": 15,
+            "allowed_platforms": ["simulated"],
+        },
+    )
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+def registration_payload(
+    enrollment_token: str,
+    *,
+    key: str | None = None,
+    installation_id: str | None = None,
+) -> dict[str, object]:
+    idempotency_key = key or str(uuid4())
+    return {
+        "schema_version": "1.0.0",
+        "idempotency_key": idempotency_key,
+        "enrollment_token": enrollment_token,
+        "installation_id": installation_id or str(uuid4()),
+        "display_name": "Integration simulated agent",
+        "platform": "simulated",
+        "platform_version": "1",
+        "agent_version": "0.1.0",
+        "protocol_min_version": "1.0.0",
+        "protocol_max_version": "1.0.0",
+        "agent_reported_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+    }
+
+
+def register_payload(client: TestClient, payload: dict[str, object]):
+    return client.post(
+        "/api/v1/agent-enrollments",
+        headers={"Idempotency-Key": str(payload["idempotency_key"])},
+        json=payload,
+    )
+
+
+def enroll_agent(client: TestClient, access: str) -> tuple[dict[str, object], dict[str, object]]:
+    token = create_enrollment_token(client, access)
+    request = registration_payload(str(token["enrollment_token"]))
+    response = register_payload(client, request)
+    assert response.status_code == 201, response.text
+    replay = register_payload(client, request)
+    assert replay.status_code == 201
+    assert replay.json() == response.json()
+    return request, response.json()
+
+
+def test_phase04_enrollment_manifest_presence_rotation_and_revocation(
+    client: TestClient, settings: Settings
+) -> None:
+    access = login(client)
+    _, registration = enroll_agent(client, access)
+    agent_id = str(registration["agent_id"])
+    credential = registration["credential"]["credential"]  # type: ignore[index]
+    root = contract_root()
+    manifest = json.loads((root / "examples/valid/capability-manifest-desktop.json").read_text())
+    manifest["agent_id"] = agent_id
+    manifest["manifest_id"] = str(uuid4())
+    manifest_response = client.put(
+        "/api/v1/agents/self/capability-manifest",
+        headers=agent_headers(str(credential)),
+        json=manifest,
+    )
+    assert manifest_response.status_code == 200, manifest_response.text
+    accepted_manifest = manifest_response.json()
+    heartbeat = {
+        "schema_version": "1.0.0",
+        "agent_id": agent_id,
+        "boot_id": str(uuid4()),
+        "sequence": 1,
+        "agent_version": "0.1.0",
+        "protocol_version": "1.0.0",
+        "agent_reported_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+        "readiness": "ready",
+        "reason": None,
+        "manifest_id": accepted_manifest["manifest_id"],
+        "manifest_digest": accepted_manifest["manifest_digest"],
+    }
+    first = client.post(
+        "/api/v1/agents/self/heartbeats",
+        headers=agent_headers(str(credential)),
+        json=heartbeat,
+    )
+    duplicate = client.post(
+        "/api/v1/agents/self/heartbeats",
+        headers=agent_headers(str(credential)),
+        json=heartbeat,
+    )
+    assert first.status_code == duplicate.status_code == 200
+    changed = {**heartbeat, "readiness": "degraded"}
+    assert (
+        client.post(
+            "/api/v1/agents/self/heartbeats",
+            headers=agent_headers(str(credential)),
+            json=changed,
+        ).status_code
+        == 409
+    )
+
+    rotation_key = str(uuid4())
+    rotation_request = {"schema_version": "1.0.0", "idempotency_key": rotation_key}
+    rotated = client.post(
+        "/api/v1/agents/self/credential-rotations",
+        headers={**agent_headers(str(credential)), "Idempotency-Key": rotation_key},
+        json=rotation_request,
+    )
+    assert rotated.status_code == 201, rotated.text
+    pending = rotated.json()["pending_credential"]["credential"]
+    rotation_id = rotated.json()["rotation_id"]
+    retry = client.post(
+        "/api/v1/agents/self/credential-rotations",
+        headers={**agent_headers(str(credential)), "Idempotency-Key": rotation_key},
+        json=rotation_request,
+    )
+    assert retry.status_code == 201 and retry.json() == rotated.json()
+    activation_key = str(uuid4())
+    activated = client.post(
+        f"/api/v1/agents/self/credential-rotations/{rotation_id}/activate",
+        headers={**agent_headers(pending), "Idempotency-Key": activation_key},
+        json={"schema_version": "1.0.0", "idempotency_key": activation_key},
+    )
+    assert activated.status_code == 200, activated.text
+    activation_retry = client.post(
+        f"/api/v1/agents/self/credential-rotations/{rotation_id}/activate",
+        headers={**agent_headers(pending), "Idempotency-Key": activation_key},
+        json={"schema_version": "1.0.0", "idempotency_key": activation_key},
+    )
+    assert activation_retry.status_code == 200
+    assert activation_retry.json() == activated.json()
+    assert (
+        client.post(
+            "/api/v1/agents/self/heartbeats",
+            headers=agent_headers(str(credential)),
+            json=heartbeat,
+        ).status_code
+        == 401
+    )
+    heartbeat["sequence"] = 2
+    heartbeat["agent_reported_at"] = datetime.now(UTC).isoformat().replace("+00:00", "Z")
+    assert (
+        client.post(
+            "/api/v1/agents/self/heartbeats",
+            headers=agent_headers(pending),
+            json=heartbeat,
+        ).status_code
+        == 200
+    )
+    mobile = {
+        "schema_version": "1.0.0",
+        "agent_id": agent_id,
+        "boot_id": str(uuid4()),
+        "sequence": 1,
+        "agent_version": "0.1.0",
+        "protocol_version": "1.0.0",
+        "agent_reported_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+        "lifecycle": "foreground",
+        "reason": None,
+        "manifest_id": accepted_manifest["manifest_id"],
+        "manifest_digest": accepted_manifest["manifest_digest"],
+    }
+    mobile_response = client.post(
+        "/api/v1/agents/self/presence",
+        headers=agent_headers(pending),
+        json=mobile,
+    )
+    assert mobile_response.status_code == 200
+    assert mobile_response.json()["poll_after_seconds"] == 60
+    assert (
+        client.post(f"/api/v1/agents/{agent_id}/revoke", headers=auth_headers(access)).status_code
+        == 204
+    )
+    for path, body in (
+        ("/api/v1/agents/self/heartbeats", heartbeat),
+        ("/api/internal/v1/agent-protocol/task-fetch", None),
+        (
+            "/api/internal/v1/agent-protocol/progress",
+            json.loads((root / "examples/valid/progress-event.json").read_text()),
+        ),
+        (
+            "/api/internal/v1/agent-protocol/results",
+            json.loads((root / "examples/valid/test-result-zero.json").read_text()),
+        ),
+        (
+            "/api/internal/v1/agent-protocol/artifact-manifests",
+            json.loads((root / "examples/valid/artifact-manifest.json").read_text()),
+        ),
+    ):
+        assert client.post(path, headers=agent_headers(pending), json=body).status_code == 401
+    assert (
+        client.put(
+            "/api/v1/agents/self/capability-manifest",
+            headers=agent_headers(pending),
+            json=manifest,
+        ).status_code
+        == 401
+    )
+    assert (
+        client.post(
+            "/api/v1/agents/self/presence",
+            headers=agent_headers(pending),
+            json=mobile,
+        ).status_code
+        == 401
+    )
+    blocked_rotation_key = str(uuid4())
+    assert (
+        client.post(
+            "/api/v1/agents/self/credential-rotations",
+            headers={
+                **agent_headers(pending),
+                "Idempotency-Key": blocked_rotation_key,
+            },
+            json={
+                "schema_version": "1.0.0",
+                "idempotency_key": blocked_rotation_key,
+            },
+        ).status_code
+        == 401
+    )
+
+
+def test_phase04_nonce_replay_clock_skew_and_idempotency_conflict(
+    client: TestClient,
+) -> None:
+    access = login(client)
+    request, registration = enroll_agent(client, access)
+    credential = str(registration["credential"]["credential"])  # type: ignore[index]
+    nonce = secrets.token_urlsafe(16)
+    headers = agent_headers(credential, nonce=nonce)
+    assert (
+        client.post("/api/internal/v1/agent-protocol/task-fetch", headers=headers).status_code
+        == 200
+    )
+    assert (
+        client.post("/api/internal/v1/agent-protocol/task-fetch", headers=headers).status_code
+        == 401
+    )
+    old = agent_headers(credential, timestamp=datetime.now(UTC) - timedelta(seconds=301))
+    assert client.post("/api/internal/v1/agent-protocol/task-fetch", headers=old).status_code == 401
+    conflicting = {**request, "display_name": "Changed payload"}
+    assert (
+        client.post(
+            "/api/v1/agent-enrollments",
+            headers={"Idempotency-Key": str(request["idempotency_key"])},
+            json=conflicting,
+        ).status_code
+        == 409
+    )
+
+
+def test_phase04_enrollment_token_states_concurrency_and_recovery(
+    client: TestClient, settings: Settings
+) -> None:
+    access = login(client)
+    expired = create_enrollment_token(client, access)
+    database = Database(settings.database_url)
+    with database.session_factory() as session:
+        token = session.get(EnrollmentToken, UUID(str(expired["enrollment_token_id"])))
+        assert token is not None
+        token.created_at = datetime.now(UTC) - timedelta(minutes=20)
+        token.expires_at = datetime.now(UTC) - timedelta(seconds=1)
+        session.commit()
+    expired_response = register_payload(
+        client, registration_payload(str(expired["enrollment_token"]))
+    )
+    assert expired_response.status_code == 401
+    assert expired_response.json()["error"]["code"] == "enrollment_failed"
+
+    revoked = create_enrollment_token(client, access)
+    assert (
+        client.post(
+            f"/api/v1/enrollment-tokens/{revoked['enrollment_token_id']}/revoke",
+            headers=auth_headers(access),
+        ).status_code
+        == 204
+    )
+    revoked_response = register_payload(
+        client, registration_payload(str(revoked["enrollment_token"]))
+    )
+    assert revoked_response.status_code == 401
+    assert revoked_response.json()["error"]["code"] == "enrollment_failed"
+    assert (
+        revoked_response.json()["error"]["message"] == expired_response.json()["error"]["message"]
+    )
+
+    consumed = create_enrollment_token(client, access)
+    first_request = registration_payload(str(consumed["enrollment_token"]))
+    first = register_payload(client, first_request)
+    assert first.status_code == 201
+    second = register_payload(client, registration_payload(str(consumed["enrollment_token"])))
+    assert second.status_code == 401
+
+    concurrent = create_enrollment_token(client, access)
+    concurrent_requests = [
+        registration_payload(str(concurrent["enrollment_token"])) for _ in range(2)
+    ]
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        statuses = list(
+            executor.map(
+                lambda payload: register_payload(client, payload).status_code,
+                concurrent_requests,
+            )
+        )
+    assert sorted(statuses) == [201, 401]
+
+    agent_id = str(first.json()["agent_id"])
+    assert (
+        client.post(f"/api/v1/agents/{agent_id}/revoke", headers=auth_headers(access)).status_code
+        == 204
+    )
+    recovery = client.post(
+        f"/api/v1/agents/{agent_id}/recovery-enrollment-tokens",
+        headers=auth_headers(access),
+    )
+    assert recovery.status_code == 201
+    recovered = register_payload(client, registration_payload(recovery.json()["enrollment_token"]))
+    assert recovered.status_code == 201
+    assert recovered.json()["agent_id"] == agent_id
+    assert recovered.json()["credential"]["credential_version"] == 2
+    with database.session_factory() as session:
+        rejected_events = list(
+            session.scalars(select(AuditLog).where(AuditLog.action == "agent.enroll_rejected"))
+        )
+        assert len(rejected_events) >= 3
+        assert all("enrollment_token" not in event.event_metadata for event in rejected_events)
+    database.close()
+
+
+def test_phase04_idempotency_in_progress_and_secret_replay_expiry(
+    client: TestClient, settings: Settings
+) -> None:
+    access = login(client)
+    token = create_enrollment_token(client, access)
+    request = registration_payload(str(token["enrollment_token"]))
+    parsed = parse_machine_secret(str(token["enrollment_token"]), prefix="wto_enr_1")
+    fingerprint_payload = dict(request)
+    del fingerprint_payload["enrollment_token"]
+    del fingerprint_payload["idempotency_key"]
+    now = datetime.now(UTC)
+    database = Database(settings.database_url)
+    with database.session_factory() as session:
+        session.add(
+            IdempotencyRecord(
+                principal_type="enrollment_token",
+                principal_id=parsed.locator,
+                operation_id=f"agent.register:{request['installation_id']}",
+                idempotency_key=UUID(str(request["idempotency_key"])),
+                request_fingerprint=IdempotencyService.fingerprint(
+                    canonical_json(fingerprint_payload)
+                ),
+                state="pending",
+                created_at=now,
+                updated_at=now,
+                expires_at=now + timedelta(days=7),
+            )
+        )
+        session.commit()
+    pending = register_payload(client, request)
+    assert pending.status_code == 409
+    assert pending.json()["error"]["code"] == "idempotency_in_progress"
+    assert pending.headers["retry-after"] == "1"
+
+    _, registration = enroll_agent(client, access)
+    credential = str(registration["credential"]["credential"])
+    agent_id = UUID(str(registration["agent_id"]))
+    rotation_key = str(uuid4())
+    rotation_body = {"schema_version": "1.0.0", "idempotency_key": rotation_key}
+    rotation = client.post(
+        "/api/v1/agents/self/credential-rotations",
+        headers={**agent_headers(credential), "Idempotency-Key": rotation_key},
+        json=rotation_body,
+    )
+    assert rotation.status_code == 201
+    pending_id = UUID(rotation.json()["pending_credential"]["credential_id"])
+    with database.session_factory() as session:
+        record = session.scalar(
+            select(IdempotencyRecord).where(
+                IdempotencyRecord.principal_id == agent_id,
+                IdempotencyRecord.operation_id == "agent.credential.rotate",
+                IdempotencyRecord.idempotency_key == UUID(rotation_key),
+            )
+        )
+        assert record is not None
+        replay = session.scalar(
+            select(SecretReplay).where(SecretReplay.idempotency_record_id == record.id)
+        )
+        rotation_record = session.get(AgentCredentialRotation, UUID(rotation.json()["rotation_id"]))
+        assert replay is not None and rotation_record is not None
+        expired_at = rotation_record.created_at + timedelta(microseconds=1)
+        replay.expires_at = expired_at
+        rotation_record.expires_at = expired_at
+        session.commit()
+    expired_replay = client.post(
+        "/api/v1/agents/self/credential-rotations",
+        headers={**agent_headers(credential), "Idempotency-Key": rotation_key},
+        json=rotation_body,
+    )
+    assert expired_replay.status_code == 409
+    assert expired_replay.json()["error"]["code"] == "secret_replay_expired"
+    with database.session_factory() as session:
+        credentials = list(
+            session.scalars(select(AgentCredential).where(AgentCredential.agent_id == agent_id))
+        )
+        assert sum(item.state == "active" for item in credentials) == 1
+        pending_credential = session.get(AgentCredential, pending_id)
+        assert pending_credential is not None
+        assert pending_credential.state == "expired"
+    database.close()
+
+
+def test_phase04_concurrent_rotation_stubs_limits_and_redis_fail_closed(
+    client: TestClient,
+) -> None:
+    access = login(client)
+    _, registration = enroll_agent(client, access)
+    credential = str(registration["credential"]["credential"])
+
+    rotation_keys = [str(uuid4()), str(uuid4())]
+
+    def rotate(key: str) -> int:
+        return client.post(
+            "/api/v1/agents/self/credential-rotations",
+            headers={**agent_headers(credential), "Idempotency-Key": key},
+            json={"schema_version": "1.0.0", "idempotency_key": key},
+        ).status_code
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        rotation_statuses = list(executor.map(rotate, rotation_keys))
+    assert sorted(rotation_statuses) == [201, 409]
+
+    progress = json.loads((contract_root() / "examples/valid/progress-event.json").read_text())
+    progress_key = str(progress["idempotency_key"])
+    accepted = client.post(
+        "/api/internal/v1/agent-protocol/progress",
+        headers={**agent_headers(credential), "Idempotency-Key": progress_key},
+        json=progress,
+    )
+    assert accepted.status_code == 200
+    invalid = {**progress, "unknown": True}
+    assert (
+        client.post(
+            "/api/internal/v1/agent-protocol/progress",
+            headers={**agent_headers(credential), "Idempotency-Key": progress_key},
+            json=invalid,
+        ).status_code
+        == 422
+    )
+    oversized = {"padding": "x" * (1024 * 1024 + 1)}
+    assert (
+        client.post(
+            "/api/internal/v1/agent-protocol/results",
+            headers={**agent_headers(credential), "Idempotency-Key": str(uuid4())},
+            json=oversized,
+        ).status_code
+        == 413
+    )
+    accepted_skew = agent_headers(credential, timestamp=datetime.now(UTC) - timedelta(seconds=299))
+    assert (
+        client.post("/api/internal/v1/agent-protocol/task-fetch", headers=accepted_skew).status_code
+        == 200
+    )
+
+    class BrokenRedis:
+        def eval(self, *_: object, **__: object) -> object:
+            raise ConnectionError("synthetic Redis outage")
+
+    client.app.state.agent_replay_guard._client = BrokenRedis()
+    unavailable = client.post(
+        "/api/internal/v1/agent-protocol/task-fetch",
+        headers=agent_headers(credential),
+    )
+    assert unavailable.status_code == 503
+    assert unavailable.json()["error"]["code"] == "dependency_unavailable"

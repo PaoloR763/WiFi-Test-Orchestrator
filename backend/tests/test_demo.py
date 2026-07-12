@@ -41,7 +41,9 @@ def test_demo_endpoints_available_in_development(
     assert response.json()["agents"][0]["agent_id"] == "simulated-test-agent"
 
 
-def test_demo_endpoints_available_in_demo(settings_factory: Callable[..., Settings]) -> None:
+def test_demo_endpoints_available_in_demo(
+    settings_factory: Callable[..., Settings],
+) -> None:
     client = make_client(settings_factory(environment="demo"))
     assert client.get("/demo/agents").status_code == 200
 
@@ -61,3 +63,17 @@ def test_demo_endpoints_are_excluded_from_openapi(
     paths = client.get("/openapi.json").json()["paths"]
     assert "/demo/agents" not in paths
     assert "/demo/agents/heartbeat" not in paths
+
+
+def test_canonical_openapi_has_agent_security_schemes(
+    settings_factory: Callable[..., Settings],
+) -> None:
+    client = make_client(settings_factory(environment="production"))
+    document = client.get("/openapi.json").json()
+    assert document["openapi"] == "3.1.0"
+    schemes = document["components"]["securitySchemes"]
+    assert {
+        "UserBearerAuth",
+        "AgentBearerAuth",
+        "AgentPendingCredentialAuth",
+    } <= schemes.keys()

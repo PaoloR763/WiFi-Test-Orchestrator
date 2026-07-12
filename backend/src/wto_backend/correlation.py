@@ -28,6 +28,7 @@ class CorrelationIdMiddleware(BaseHTTPMiddleware):
                 return JSONResponse(
                     status_code=400,
                     content={
+                        "schema_version": "1.0.0",
                         "error": {
                             "code": "invalid_correlation_id",
                             "message": (
@@ -35,7 +36,7 @@ class CorrelationIdMiddleware(BaseHTTPMiddleware):
                             ),
                             "details": None,
                             "correlation_id": safe_id,
-                        }
+                        },
                     },
                     headers={CORRELATION_HEADER: safe_id},
                 )

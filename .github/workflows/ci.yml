@@ -1,4 +1,4 @@
-name: phase-03-ci
+name: phase-04-ci
 
 on:
   push:
@@ -10,13 +10,16 @@ permissions:
 jobs:
   validate:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v7.0.0
+      - uses: actions/checkout@v6.0.2
       - name: Generate ephemeral CI secrets
         run: python scripts/generate_env.py
       - name: Validate repository guardrails
-        run: python scripts/validate_repository.py
+        run: |
+          python scripts/build_openapi.py --check
+          python scripts/check_contract_compatibility.py --verify-release
+          python scripts/validate_repository.py
       - name: Validate Compose syntax and policy
         run: |
           docker compose config --quiet
@@ -27,6 +30,8 @@ jobs:
           docker compose --profile tools run --rm --no-deps backend-tools ruff check src tests migrations
           docker compose --profile tools run --rm --no-deps backend-tools black --check src tests migrations
           docker compose --profile tools run --rm --no-deps backend-tools mypy src
+          docker compose --profile tools run --rm --no-deps backend-tools python scripts/validate_contracts.py
+          docker compose --profile tools run --rm --no-deps backend-tools python scripts/check_openapi_drift.py
           docker compose --profile tools run --rm --no-deps backend-tools pytest --cov=wto_backend --cov-report=term-missing
           sh scripts/dev.sh test-integration
       - name: Frontend lint, format, types, tests, and build
@@ -44,3 +49,27 @@ jobs:
       - name: Compose logs after failure
         if: failure()
         run: docker compose logs --no-color || true
+
+  contracts-typescript:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6.0.2
+      - run: docker compose --profile contracts build contracts-typescript
+      - run: docker compose --profile contracts run --rm contracts-typescript
+
+  contracts-kotlin:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v6.0.2
+      - run: docker compose --profile contracts build contracts-kotlin
+      - run: docker compose --profile contracts run --rm contracts-kotlin
+
+  contracts-swift:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v6.0.2
+      - run: docker compose --profile contracts build contracts-swift
+      - run: docker compose --profile contracts run --rm contracts-swift

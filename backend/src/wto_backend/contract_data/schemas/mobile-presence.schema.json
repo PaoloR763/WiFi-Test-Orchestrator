@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.wifi-test-orchestrator.example/1.0.0/mobile-presence.schema.json",
+  "title": "MobilePresence",
+  "type": "object", "additionalProperties": false,
+  "required": ["schema_version", "agent_id", "boot_id", "sequence", "agent_version", "protocol_version", "agent_reported_at", "lifecycle", "reason", "manifest_id", "manifest_digest"],
+  "properties": {
+    "schema_version": {"$ref": "common.schema.json#/$defs/schema_version"},
+    "agent_id": {"$ref": "common.schema.json#/$defs/uuid"},
+    "boot_id": {"$ref": "common.schema.json#/$defs/uuid"},
+    "sequence": {"type": "integer", "minimum": 0, "maximum": 9223372036854775807},
+    "agent_version": {"$ref": "common.schema.json#/$defs/semver"},
+    "protocol_version": {"$ref": "common.schema.json#/$defs/agent_protocol"},
+    "agent_reported_at": {"$ref": "common.schema.json#/$defs/utc_timestamp"},
+    "lifecycle": {"type": "string", "enum": ["foreground", "background_window", "user_initiated"]},
+    "reason": {"anyOf": [{"$ref": "reason.schema.json"}, {"type": "null"}]},
+    "manifest_id": {"$ref": "common.schema.json#/$defs/uuid"},
+    "manifest_digest": {"$ref": "common.schema.json#/$defs/sha256"}
+  }
+}

@@ -34,6 +34,9 @@ class Settings(BaseSettings):
     jwt_signing_key: SecretStr
     rate_limit_hmac_key: SecretStr
     audit_subject_hmac_key: SecretStr
+    enrollment_token_hmac_key: SecretStr
+    agent_credential_hmac_key: SecretStr
+    secret_replay_encryption_key: SecretStr
     jwt_issuer: str = "wifi-test-orchestrator"
     jwt_audience: str = "wifi-test-orchestrator-api"
     access_token_minutes: int = Field(default=10, ge=1, le=30)
@@ -47,6 +50,11 @@ class Settings(BaseSettings):
     login_ip_limit: int = Field(default=20, ge=1, le=1000)
     login_identifier_limit: int = Field(default=5, ge=1, le=100)
     login_rate_window_seconds: int = Field(default=900, ge=60, le=86400)
+    enrollment_token_minutes: int = Field(default=15, ge=1, le=1440)
+    agent_credential_days: int = Field(default=90, ge=1, le=180)
+    agent_clock_skew_seconds: int = Field(default=300, ge=30, le=300)
+    agent_nonce_ttl_seconds: int = Field(default=600, ge=600, le=600)
+    agent_request_limit: int = Field(default=120, ge=1, le=10000)
 
     @field_validator(
         "service_name",
@@ -96,6 +104,9 @@ class Settings(BaseSettings):
             self.jwt_signing_key.get_secret_value(),
             self.rate_limit_hmac_key.get_secret_value(),
             self.audit_subject_hmac_key.get_secret_value(),
+            self.enrollment_token_hmac_key.get_secret_value(),
+            self.agent_credential_hmac_key.get_secret_value(),
+            self.secret_replay_encryption_key.get_secret_value(),
         ]
         placeholders = {"change-me", "changeme", "placeholder", "development", "secret"}
         for value in values:

@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.wifi-test-orchestrator.example/1.0.0/artifact-manifest.schema.json",
+  "title": "ArtifactManifest",
+  "type": "object", "additionalProperties": false,
+  "required": ["schema_version", "artifact_id", "execution_id", "artifact_type", "media_type", "size_bytes", "sha256", "created_at", "idempotency_key"],
+  "properties": {
+    "schema_version": {"$ref": "common.schema.json#/$defs/schema_version"},
+    "artifact_id": {"$ref": "common.schema.json#/$defs/uuid"},
+    "execution_id": {"$ref": "common.schema.json#/$defs/uuid"},
+    "artifact_type": {"type": "string", "enum": ["log", "raw_result", "csv", "report", "pcap", "pcapng"]},
+    "media_type": {"type": "string", "minLength": 3, "maxLength": 128, "pattern": "^[a-z0-9.+-]+/[a-zA-Z0-9.+-]+$"},
+    "size_bytes": {"type": "integer", "minimum": 0, "maximum": 1073741824},
+    "sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+    "created_at": {"$ref": "common.schema.json#/$defs/utc_timestamp"},
+    "idempotency_key": {"$ref": "common.schema.json#/$defs/idempotency_key"}
+  }
+}

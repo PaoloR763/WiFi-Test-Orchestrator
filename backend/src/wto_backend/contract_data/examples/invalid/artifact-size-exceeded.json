@@ -1,0 +1,11 @@
+{
+  "schema_version": "1.0.0",
+  "artifact_id": "a0000000-0000-4000-8000-000000000001",
+  "execution_id": "70000000-0000-4000-8000-000000000001",
+  "artifact_type": "pcapng",
+  "media_type": "application/vnd.tcpdump.pcap",
+  "size_bytes": 1073741825,
+  "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "created_at": "2026-07-12T12:00:01Z",
+  "idempotency_key": "80000000-0000-4000-8000-000000000004"
+}

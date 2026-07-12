@@ -26,7 +26,9 @@ def test_generates_correlation_id(settings_factory: Callable[..., Settings]) -> 
     UUID(response.headers["X-Correlation-ID"])
 
 
-def test_propagates_valid_correlation_id(settings_factory: Callable[..., Settings]) -> None:
+def test_propagates_valid_correlation_id(
+    settings_factory: Callable[..., Settings],
+) -> None:
     correlation_id = "client.request-123_example"
     response = make_client(settings_factory()).get(
         "/health/live", headers={"X-Correlation-ID": correlation_id}

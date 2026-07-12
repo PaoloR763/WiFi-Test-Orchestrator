@@ -31,6 +31,9 @@ def settings_factory(tmp_path: Path) -> Callable[..., Settings]:
             "jwt_signing_key": "j" * 48,
             "rate_limit_hmac_key": "r" * 48,
             "audit_subject_hmac_key": "a" * 48,
+            "enrollment_token_hmac_key": "e" * 48,
+            "agent_credential_hmac_key": "c" * 48,
+            "secret_replay_encryption_key": "s" * 48,
             "allowed_origin": "https://testserver",
             "trusted_proxy_cidrs": "127.0.0.1/32",
         }

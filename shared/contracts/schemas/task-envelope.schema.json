@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.wifi-test-orchestrator.example/1.0.0/task-envelope.schema.json",
+  "title": "TaskEnvelope",
+  "type": "object", "additionalProperties": false,
+  "required": ["schema_version", "protocol_version", "task_id", "execution_id", "task_type", "task_type_version", "issued_at", "not_before", "expires_at", "idempotency_key", "required_capabilities", "foreground_requirement", "user_interaction_requirement"],
+  "properties": {
+    "schema_version": {"$ref": "common.schema.json#/$defs/schema_version"},
+    "protocol_version": {"$ref": "common.schema.json#/$defs/agent_protocol"},
+    "task_id": {"$ref": "common.schema.json#/$defs/uuid"},
+    "execution_id": {"$ref": "common.schema.json#/$defs/uuid"},
+    "task_type": {"type": "string", "const": "protocol.contract_check"},
+    "task_type_version": {"type": "string", "const": "1.0.0"},
+    "issued_at": {"$ref": "common.schema.json#/$defs/utc_timestamp"},
+    "not_before": {"$ref": "common.schema.json#/$defs/utc_timestamp"},
+    "expires_at": {"$ref": "common.schema.json#/$defs/utc_timestamp"},
+    "idempotency_key": {"$ref": "common.schema.json#/$defs/idempotency_key"},
+    "required_capabilities": {"type": "array", "minItems": 1, "maxItems": 15, "uniqueItems": true, "items": {"$ref": "common.schema.json#/$defs/capability_id"}},
+    "foreground_requirement": {"type": "string", "enum": ["not_required", "required", "required_on_mobile"]},
+    "user_interaction_requirement": {"type": "string", "enum": ["none", "possible", "required"]}
+  }
+}

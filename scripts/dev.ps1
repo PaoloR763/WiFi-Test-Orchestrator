@@ -1,12 +1,12 @@
 param(
     [Parameter(Mandatory = $true, Position = 0)]
-    [ValidateSet('up', 'down', 'logs', 'build', 'lint', 'format-check', 'typecheck', 'test', 'test-integration', 'smoke', 'migrate', 'seed', 'validate', 'reset')]
+    [ValidateSet('up', 'down', 'logs', 'build', 'lint', 'format-check', 'typecheck', 'test', 'test-integration', 'contracts', 'smoke', 'migrate', 'seed', 'validate', 'reset')]
     [string]$Action,
     [switch]$ConfirmReset
 )
 
 $ErrorActionPreference = 'Stop'
-$IntegrationProjectName = 'wto-phase03-integration'
+$IntegrationProjectName = 'wto-phase04-integration'
 
 function Invoke-Checked {
     param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Command)
@@ -141,18 +141,29 @@ switch ($Action) {
         Invoke-FrontendTool npm test
     }
     'test-integration' { Invoke-WithIntegrationCleanup { Invoke-IntegrationCommands } }
+    'contracts' {
+        Invoke-BackendTool python scripts/validate_contracts.py
+        Invoke-Checked docker compose --profile contracts build contracts-typescript contracts-kotlin contracts-swift
+        Invoke-Checked docker compose --profile contracts run --rm contracts-typescript
+        Invoke-Checked docker compose --profile contracts run --rm contracts-kotlin
+        Invoke-Checked docker compose --profile contracts run --rm contracts-swift
+    }
     'smoke' { & "$PSScriptRoot/smoke.ps1"; if ($LASTEXITCODE -ne 0) { throw 'Smoke test failed' } }
     'migrate' { Invoke-Checked docker compose run --rm backend alembic upgrade head }
     'seed' { Invoke-Checked docker compose exec backend python -m wto_backend.cli seed-rbac }
     'validate' {
         Invoke-WithIntegrationCleanup {
             Invoke-Checked python scripts/validate_repository.py
+            Invoke-Checked python scripts/build_openapi.py --check
+            Invoke-Checked python scripts/check_contract_compatibility.py --verify-release
             Invoke-Checked docker compose config --quiet
             Invoke-Checked python tests/compose/test_compose_policy.py
             & $PSCommandPath lint
             & $PSCommandPath format-check
             & $PSCommandPath typecheck
             & $PSCommandPath test
+            Invoke-BackendTool python scripts/validate_contracts.py
+            Invoke-BackendTool python scripts/check_openapi_drift.py
             Invoke-IntegrationCommands
         }
     }

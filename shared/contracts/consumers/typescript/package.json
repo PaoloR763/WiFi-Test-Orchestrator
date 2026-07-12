@@ -1,0 +1,9 @@
+{
+  "name": "wto-contracts-typescript",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {"build": "tsc", "test": "npm run build && node dist/contract-test.js"},
+  "dependencies": {"ajv": "8.20.0", "ajv-formats": "3.0.1"},
+  "devDependencies": {"@types/node": "22.15.30", "typescript": "5.8.3"}
+}

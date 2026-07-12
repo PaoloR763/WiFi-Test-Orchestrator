@@ -10,6 +10,12 @@ Versioning cuando existan releases publicadas.
 
 ### Added
 
+- Contratos normativos OpenAPI 3.1 y JSON Schema Draft 2020-12, golden
+  fixtures compartidos y consumidores ejecutables Python, TypeScript, Kotlin y Swift.
+- Enrolamiento single-use, identidad y credentials individuales rotables,
+  replay secreto AEAD, revocación inmediata y recovery autorizado.
+- Capability Manifest de siete dimensiones, heartbeat desktop, presence mobile,
+  agent auth con nonce Redis y stubs protegidos para fases futuras.
 - Baseline arquitectónico para el producto inicial `0.1.0`.
 - Separación de control, data, telemetry, artifact e integration planes.
 - ADRs para stack, contratos, capabilities, delivery, almacenamiento,
@@ -45,6 +51,12 @@ Versioning cuando existan releases publicadas.
 - Corregido el Prompt 04 para alinear capability manifests, IDs canónicos,
   versionado, idempotencia, autoridad contractual, consumidores y tratamiento
   de credenciales con el baseline normativo aprobado.
+- Excluidas de Black únicamente las migraciones publicadas 0001–0003; smoke usa
+  un project name aislado, restaura el entorno y verifica cleanup de recursos.
+- Reforzada la evidencia del consumidor Swift con compilación y validación
+  Codable/semántica explícita de los 25 golden fixtures compartidos.
+- Corregida la inclusión exclusiva del Gradle Wrapper JAR de Kotlin, con hash y
+  guardrail Git; documentado el inventario contractual exacto de 14 schemas.
 - Documentado el flujo local Windows/WSL2 y Linux, troubleshooting, rollback y
   mapa del monorepo.
 
@@ -58,6 +70,9 @@ Versioning cuando existan releases publicadas.
 - Secretos locales independientes se generan en `.env` ignorado; los ejemplos
   no contienen valores utilizables. AuditLog es append-only para aplicación y
   rol runtime, sin afirmar inmutabilidad frente al propietario PostgreSQL.
+- El upgrade `--add-missing` agrega sólo las claves secretas de Fase 04 mediante
+  CSPRNG, preserva valores existentes y mantiene `--force` como rotación
+  destructiva separada.
 
 ## Release status
 

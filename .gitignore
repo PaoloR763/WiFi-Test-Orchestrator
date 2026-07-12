@@ -94,6 +94,7 @@ Carthage/Build/
 
 *.class
 *.jar
+!shared/contracts/consumers/kotlin/gradle/wrapper/gradle-wrapper.jar
 *.war
 *.ear
 

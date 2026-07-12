@@ -1,0 +1,12 @@
+{
+  "schema_version": "1.0.0",
+  "event_id": "50000000-0000-4000-8000-000000000001",
+  "task_id": "40000000-0000-4000-8000-000000000001",
+  "execution_id": "40000000-0000-4000-8000-000000000002",
+  "sequence": 1,
+  "event_type": "running",
+  "occurred_at": "2026-07-12T12:01:00Z",
+  "progress_percent": 50,
+  "reason": null,
+  "idempotency_key": "50000000-0000-4000-8000-000000000002"
+}

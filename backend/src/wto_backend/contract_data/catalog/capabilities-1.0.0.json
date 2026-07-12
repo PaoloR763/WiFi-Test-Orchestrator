@@ -1,0 +1,13 @@
+{
+  "schema_version": "1.0.0",
+  "catalog_version": "1.0.0",
+  "capability_ids": [
+    "wifi.connection.read", "wifi.scan", "wifi.rssi.read",
+    "network.icmp.ping", "network.tcp.probe", "network.http.probe",
+    "traffic.tcp.throughput", "traffic.udp.throughput",
+    "traffic.http.download", "traffic.http.upload",
+    "traffic.latency_under_load", "capture.ip",
+    "capture.ieee80211.monitor", "traffic.pcap.replay",
+    "execution.background.continuous"
+  ]
+}

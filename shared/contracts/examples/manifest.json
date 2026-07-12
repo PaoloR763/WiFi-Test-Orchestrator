@@ -1,0 +1,35 @@
+{
+  "schema_version": "1.0.0",
+  "fixtures": [
+    {"path": "valid/agent-registration-request.json", "schema": "agent-registration-request.schema.json", "valid": true, "error": null},
+    {"path": "valid/agent-registration-response.json", "schema": "agent-registration-response.schema.json", "valid": true, "error": null},
+    {"path": "valid/agent-credential.json", "schema": "agent-credential.schema.json", "valid": true, "error": null},
+    {"path": "valid/capability-manifest-desktop.json", "schema": "capability-manifest.schema.json", "valid": true, "error": null},
+    {"path": "valid/capability-manifest-mobile.json", "schema": "capability-manifest.schema.json", "valid": true, "error": null},
+    {"path": "valid/desktop-heartbeat.json", "schema": "desktop-heartbeat.schema.json", "valid": true, "error": null},
+    {"path": "valid/mobile-presence.json", "schema": "mobile-presence.schema.json", "valid": true, "error": null},
+    {"path": "valid/task-envelope.json", "schema": "task-envelope.schema.json", "valid": true, "error": null},
+    {"path": "valid/progress-event.json", "schema": "progress-event.schema.json", "valid": true, "error": null},
+    {"path": "valid/test-result-null.json", "schema": "test-result.schema.json", "valid": true, "error": null},
+    {"path": "valid/test-result-zero.json", "schema": "test-result.schema.json", "valid": true, "error": null},
+    {"path": "valid/artifact-manifest.json", "schema": "artifact-manifest.schema.json", "valid": true, "error": null},
+    {"path": "invalid/registration-unknown-field.json", "schema": "agent-registration-request.schema.json", "valid": false, "error": "additionalProperties"},
+    {"path": "invalid/registration-bad-idempotency.json", "schema": "agent-registration-request.schema.json", "valid": false, "error": "format"},
+    {"path": "invalid/credential-unknown-field.json", "schema": "agent-credential.schema.json", "valid": false, "error": "additionalProperties"},
+    {"path": "invalid/capability-missing.json", "schema": "capability-manifest.schema.json", "valid": false, "error": "minItems"},
+    {"path": "invalid/capability-provider-as-id.json", "schema": "capability-manifest.schema.json", "valid": false, "error": "enum"},
+    {"path": "invalid/capability-unknown-enum.json", "schema": "capability-manifest.schema.json", "valid": false, "error": "enum"},
+    {"path": "invalid/heartbeat-unknown-protocol.json", "schema": "desktop-heartbeat.schema.json", "valid": false, "error": "const"},
+    {"path": "invalid/mobile-presence-unknown-field.json", "schema": "mobile-presence.schema.json", "valid": false, "error": "additionalProperties"},
+    {"path": "invalid/task-unknown-type.json", "schema": "task-envelope.schema.json", "valid": false, "error": "const"},
+    {"path": "invalid/progress-over-limit.json", "schema": "progress-event.schema.json", "valid": false, "error": "maximum"},
+    {"path": "invalid/test-result-metrics-object.json", "schema": "test-result.schema.json", "valid": false, "error": "type"},
+    {"path": "invalid/artifact-unknown-field.json", "schema": "artifact-manifest.schema.json", "valid": false, "error": "additionalProperties"},
+    {"path": "invalid/artifact-size-exceeded.json", "schema": "artifact-manifest.schema.json", "valid": false, "error": "maximum"}
+  ],
+  "semantic_cases": [
+    {"name": "clock_skew_rejected", "fixture": "valid/desktop-heartbeat.json", "expected_error": "request_clock_skew"},
+    {"name": "revoked_agent_rejected", "fixture": "valid/desktop-heartbeat.json", "expected_error": "agent_authentication_failed"},
+    {"name": "idempotency_payload_conflict", "fixture": "valid/agent-registration-request.json", "expected_error": "idempotency_key_reused"}
+  ]
+}

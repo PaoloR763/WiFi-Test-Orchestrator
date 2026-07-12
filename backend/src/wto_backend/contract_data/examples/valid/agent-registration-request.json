@@ -1,0 +1,13 @@
+{
+  "schema_version": "1.0.0",
+  "idempotency_key": "20000000-0000-4000-8000-000000000001",
+  "enrollment_token": "wto_enr_1.20000000-0000-4000-8000-000000000002.BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+  "installation_id": "20000000-0000-4000-8000-000000000003",
+  "display_name": "Synthetic desktop agent",
+  "platform": "windows",
+  "platform_version": "11-24H2",
+  "agent_version": "0.1.0",
+  "protocol_min_version": "1.0.0",
+  "protocol_max_version": "1.0.0",
+  "agent_reported_at": "2026-07-12T12:00:00Z"
+}

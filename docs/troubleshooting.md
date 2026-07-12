@@ -43,7 +43,7 @@ La revisión inicial es una baseline vacía y no crea modelos definitivos. Si la
 base local es descartable, consulte el procedimiento de rollback antes de
 eliminar volúmenes.
 
-En Fase 03 `alembic current` debe mostrar `20260712_0003`. Si el rol runtime no
+En Fase 04 `alembic current` debe mostrar `20260712_0004`. Si el rol runtime no
 puede acceder a tablas, verifique que PostgreSQL se inicializó con el `.env`
 actual; rotar passwords sobre un volumen existente requiere rotación SQL o un
 reset explícito de datos descartables.
@@ -51,17 +51,18 @@ reset explícito de datos descartables.
 ## Faltan secretos o son inseguros
 
 Ejecute `scripts/generate-env.ps1` o `scripts/generate-env.sh`. El backend falla
-cerrado si una de las tres claves falta, es corta, placeholder o se reutiliza.
+cerrado si una de las seis claves falta, es corta, placeholder o se reutiliza.
 No copie valores de `.env.example`.
 
-## El agente simulado no aparece
+## El agente simulado no completa enrolamiento
 
-Revise `docker compose logs simulated-agent backend`. El agente debe publicar
-heartbeats desde la red interna y el entorno debe ser `development` o `demo`.
-En `production`, los endpoints demo responden 404 por diseño.
+Revise `docker compose logs simulated-agent backend` sin imprimir `.env`. Smoke
+exige los eventos redactados de enrolamiento, rotación y heartbeat normativo.
+Un `dependency_unavailable` en agent auth indica que Redis no pudo reservar el
+nonce y el backend falló cerrado.
 
 ## Certificados
 
-La Fase 02 local usa HTTP y no instala una CA. No exponga este deployment fuera
-del host de desarrollo. TLS y el lifecycle de credenciales se incorporarán en
-fases posteriores.
+El entorno local usa HTTP y no instala una CA. No lo exponga fuera del host de
+desarrollo. TLS es obligatorio en entornos compartidos; mTLS/PKI queda listo
+como evolución, no implementado en Fase 04.

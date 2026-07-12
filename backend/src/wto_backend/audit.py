@@ -19,6 +19,16 @@ SAFE_METADATA_KEYS = {
     "created_count",
     "updated_count",
     "already_exists",
+    "agent_id",
+    "credential_id",
+    "credential_version",
+    "enrollment_token_id",
+    "installation_id",
+    "manifest_id",
+    "operation_id",
+    "protocol_version",
+    "rotation_id",
+    "scope",
 }
 FORBIDDEN_FRAGMENTS = {
     "password",
@@ -38,8 +48,9 @@ def sanitize_metadata(metadata: dict[str, Any] | None) -> dict[str, Any]:
     safe: dict[str, Any] = {}
     for key, value in metadata.items():
         lowered = key.lower()
-        if key not in SAFE_METADATA_KEYS or any(
-            fragment in lowered for fragment in FORBIDDEN_FRAGMENTS
+        contains_forbidden_fragment = any(fragment in lowered for fragment in FORBIDDEN_FRAGMENTS)
+        if key not in SAFE_METADATA_KEYS or (
+            contains_forbidden_fragment and key != "enrollment_token_id"
         ):
             continue
         if isinstance(value, str | int | bool) or value is None:
@@ -62,10 +73,12 @@ def write_audit(
     outcome: str,
     correlation_id: str,
     metadata: dict[str, Any] | None = None,
+    actor_agent_id: UUID | None = None,
 ) -> AuditLog:
     event = AuditLog(
         actor_type=actor_type,
         actor_id=actor_id,
+        actor_agent_id=actor_agent_id,
         action=action,
         resource_type=resource_type,
         resource_id=resource_id,
