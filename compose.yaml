@@ -13,7 +13,8 @@ services:
       frontend:
         condition: service_healthy
     networks:
-      - edge
+      edge:
+        ipv4_address: 172.31.0.10
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/health/live"]
       interval: 10s
@@ -42,9 +43,10 @@ services:
       dockerfile: Dockerfile
       target: runtime
     env_file:
-      - .env.example
+      - .env
     environment:
       WTO_SERVICE_NAME: backend
+      WTO_ALLOWED_ORIGIN: "${WTO_ALLOWED_ORIGIN:-http://localhost:8080}"
       WTO_POSTGRES_HOST: postgres
       WTO_REDIS_HOST: redis
       WTO_ARTIFACT_ROOT: /var/lib/wto/artifacts
@@ -83,9 +85,10 @@ services:
       target: runtime
     hostname: worker
     env_file:
-      - .env.example
+      - .env
     environment:
       WTO_SERVICE_NAME: worker
+      WTO_ALLOWED_ORIGIN: "${WTO_ALLOWED_ORIGIN:-http://localhost:8080}"
       WTO_POSTGRES_HOST: postgres
       WTO_REDIS_HOST: redis
       WTO_ARTIFACT_ROOT: /var/lib/wto/artifacts
@@ -121,9 +124,11 @@ services:
     restart: unless-stopped
 
   postgres:
-    image: postgres:17.5-alpine3.21
+    build:
+      context: deployment/postgres
+      dockerfile: Dockerfile
     env_file:
-      - .env.example
+      - .env
     volumes:
       - postgres_data:/var/lib/postgresql/data
     networks:
@@ -174,7 +179,7 @@ services:
       context: agents/simulated
       dockerfile: Dockerfile
     env_file:
-      - .env.example
+      - .env
     environment:
       SIM_BACKEND_URL: http://backend:8000
     depends_on:
@@ -201,15 +206,56 @@ services:
       dockerfile: Dockerfile
       target: test
     env_file:
-      - .env.example
+      - .env
     environment:
       WTO_ENVIRONMENT: test
       WTO_SERVICE_NAME: backend-tools
-      WTO_POSTGRES_HOST: postgres
-      WTO_REDIS_HOST: redis
+      WTO_POSTGRES_HOST: postgres-test
+      WTO_POSTGRES_DB: wto_test
+      WTO_REDIS_HOST: redis-test
       WTO_ARTIFACT_ROOT: /tmp/wto-test-artifacts
+      WTO_ALLOWED_ORIGIN: https://testserver
+      WTO_TRUSTED_PROXY_CIDRS: 127.0.0.1/32
+    depends_on:
+      postgres-test:
+        condition: service_healthy
+      redis-test:
+        condition: service_healthy
     networks:
       - internal
+
+  postgres-test:
+    profiles: ["tools"]
+    build:
+      context: deployment/postgres
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    environment:
+      POSTGRES_DB: wto_test
+    tmpfs:
+      - /var/lib/postgresql/data
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+  redis-test:
+    profiles: ["tools"]
+    image: redis:7.4.5-alpine3.21
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    tmpfs:
+      - /data
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
 
   frontend-tools:
     profiles: ["tools"]
@@ -222,6 +268,9 @@ services:
 
 networks:
   edge:
+    ipam:
+      config:
+        - subnet: 172.31.0.0/24
   internal:
     internal: true
 

@@ -2,14 +2,91 @@
 set -eu
 
 action="${1:-}"
+integration_project_name="wto-phase03-integration"
 
 backend_tool() {
-  docker compose --profile tools run --rm --build backend-tools "$@"
+  docker compose --profile tools run --rm --no-deps --build backend-tools "$@"
 }
 
 frontend_tool() {
   docker compose --profile tools run --rm --build frontend-tools "$@"
 }
+
+assert_integration_project_removed() {
+  leftovers=''
+  for resource_type in container network volume; do
+    case "$resource_type" in
+      container)
+        ids="$(docker container ls --all --quiet --filter "label=com.docker.compose.project=${integration_project_name}")" || return $?
+        ;;
+      network)
+        ids="$(docker network ls --quiet --filter "label=com.docker.compose.project=${integration_project_name}")" || return $?
+        ;;
+      volume)
+        ids="$(docker volume ls --quiet --filter "label=com.docker.compose.project=${integration_project_name}")" || return $?
+        ;;
+    esac
+    if [ -n "$ids" ]; then
+      leftovers="${leftovers} ${resource_type}:${ids}"
+    fi
+  done
+  if [ -n "$leftovers" ]; then
+    echo "Integration cleanup regression: resources remain for project ${integration_project_name}:${leftovers}" >&2
+    return 1
+  fi
+}
+
+cleanup_integration_project() {
+  original_status="$1"
+  trap - EXIT HUP INT TERM
+  set +e
+  docker compose --project-name "$integration_project_name" --profile tools \
+    down --volumes --remove-orphans
+  cleanup_status=$?
+  assert_integration_project_removed
+  verification_status=$?
+  if [ "$original_status" -ne 0 ]; then
+    exit "$original_status"
+  fi
+  if [ "$cleanup_status" -ne 0 ]; then
+    exit "$cleanup_status"
+  fi
+  exit "$verification_status"
+}
+
+install_integration_cleanup_traps() {
+  trap 'cleanup_integration_project $?' EXIT
+  trap 'cleanup_integration_project 129' HUP
+  trap 'cleanup_integration_project 130' INT
+  trap 'cleanup_integration_project 143' TERM
+}
+
+integration_commands() {
+  docker compose --project-name "$integration_project_name" --profile tools \
+    run --rm --build backend-tools env WTO_RUN_INTEGRATION=1 sh -ec '
+      pytest -m integration
+      alembic check
+    '
+}
+
+run_integration_tests() (
+  export COMPOSE_PROJECT_NAME="$integration_project_name"
+  install_integration_cleanup_traps
+  integration_commands
+)
+
+run_validation() (
+  export COMPOSE_PROJECT_NAME="$integration_project_name"
+  install_integration_cleanup_traps
+  python scripts/validate_repository.py
+  docker compose config --quiet
+  python tests/compose/test_compose_policy.py
+  "$0" lint
+  "$0" format-check
+  "$0" typecheck
+  "$0" test
+  integration_commands
+)
 
 case "$action" in
   up)
@@ -40,20 +117,20 @@ case "$action" in
     backend_tool pytest --cov=wto_backend --cov-report=term-missing
     frontend_tool npm test
     ;;
+  test-integration)
+    run_integration_tests
+    ;;
   smoke)
     sh "$(dirname "$0")/smoke.sh"
     ;;
   migrate)
     docker compose run --rm backend alembic upgrade head
     ;;
+  seed)
+    docker compose exec backend python -m wto_backend.cli seed-rbac
+    ;;
   validate)
-    python scripts/validate_repository.py
-    docker compose config --quiet
-    python tests/compose/test_compose_policy.py
-    "$0" lint
-    "$0" format-check
-    "$0" typecheck
-    "$0" test
+    run_validation
     ;;
   reset)
     if [ "${2:-}" != "--confirm" ]; then
@@ -64,7 +141,7 @@ case "$action" in
     docker compose down --volumes --remove-orphans
     ;;
   *)
-    echo "Usage: $0 {up|down|logs|build|lint|format-check|typecheck|test|smoke|migrate|validate|reset --confirm}" >&2
+    echo "Usage: $0 {up|down|logs|build|lint|format-check|typecheck|test|test-integration|smoke|migrate|seed|validate|reset --confirm}" >&2
     exit 2
     ;;
 esac

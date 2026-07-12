@@ -1,4 +1,9 @@
-# Rollback de la Fase 02
+# Rollback de desarrollo
+
+Para Fase 03 consulte también
+[`docs/phase03/migrations-and-rollback.md`](phase03/migrations-and-rollback.md).
+El rollback de aplicación debe conservar inicialmente el schema aditivo. El
+downgrade a la baseline vacía destruye usuarios, sesiones y auditoría.
 
 ## Detener sin perder datos
 

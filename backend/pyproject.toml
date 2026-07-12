@@ -17,6 +17,7 @@ ignore = ["S101"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S105", "S106"]
+"migrations/versions/**" = ["E501"]
 
 [tool.mypy]
 python_version = "3.12"
@@ -32,3 +33,4 @@ ignore_missing_imports = true
 addopts = "-ra --strict-markers"
 testpaths = ["tests"]
 pythonpath = ["src"]
+markers = ["integration: requires disposable PostgreSQL and Redis services"]
