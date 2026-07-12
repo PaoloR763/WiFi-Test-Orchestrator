@@ -30,6 +30,8 @@ Versioning cuando existan releases publicadas.
   `user_interaction`, `background_execution`, `provider` y `limitations`, sin
   cerrar vocabularios ni JSON Schema antes de la Fase 04.
 - Alineados los ejemplos de capability IDs con el baseline conceptual aprobado.
+- Alineadas las instrucciones específicas de `prompts/` con el contexto
+  normativo raíz y los ADRs aceptados.
 
 ### Security
 
