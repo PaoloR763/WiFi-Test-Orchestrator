@@ -1,0 +1,43 @@
+name: phase-02-ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - name: Validate repository guardrails
+        run: python scripts/validate_repository.py
+      - name: Validate Compose syntax and policy
+        run: |
+          docker compose config --quiet
+          python tests/compose/test_compose_policy.py
+      - name: Backend lint, format, types, and tests
+        run: |
+          docker compose --profile tools build backend-tools
+          docker compose --profile tools run --rm backend-tools ruff check src tests migrations
+          docker compose --profile tools run --rm backend-tools black --check src tests migrations
+          docker compose --profile tools run --rm backend-tools mypy src
+          docker compose --profile tools run --rm backend-tools pytest --cov=wto_backend --cov-report=term-missing
+      - name: Frontend lint, format, types, tests, and build
+        run: |
+          docker compose --profile tools build frontend-tools
+          docker compose --profile tools run --rm frontend-tools npm run lint
+          docker compose --profile tools run --rm frontend-tools npm run format-check
+          docker compose --profile tools run --rm frontend-tools npm run typecheck
+          docker compose --profile tools run --rm frontend-tools npm test
+          docker compose --profile tools run --rm frontend-tools npm run build
+      - name: Build runtime images
+        run: docker compose build
+      - name: Clean-environment smoke test
+        run: sh scripts/smoke.sh
+      - name: Compose logs after failure
+        if: failure()
+        run: docker compose logs --no-color || true

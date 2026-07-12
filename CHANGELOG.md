@@ -17,6 +17,10 @@ Versioning cuando existan releases publicadas.
 - Diagramas Mermaid de contexto, componentes, topologías y flujos.
 - Threat model inicial y matriz multidimensional de capabilities.
 - Reglas conceptuales de métricas, límites, reservas y compatibilidad.
+- Monorepo ejecutable de Fase 02 con backend, frontend, worker, reverse proxy,
+  PostgreSQL, Redis, artifact store filesystem y agente simulado outbound-only.
+- Health/readiness, logs JSON, correlation IDs, scripts equivalentes, tests y
+  CI Linux basada en contenedores.
 
 ### Changed
 
@@ -32,12 +36,16 @@ Versioning cuando existan releases publicadas.
 - Alineados los ejemplos de capability IDs con el baseline conceptual aprobado.
 - Alineadas las instrucciones específicas de `prompts/` con el contexto
   normativo raíz y los ADRs aceptados.
+- Documentado el flujo local Windows/WSL2 y Linux, troubleshooting, rollback y
+  mapa del monorepo.
 
 ### Security
 
 - Documentados controles para enrolamiento, credenciales, leases,
   idempotencia, tráfico autorizado, captura, plugins y cambios de
   infraestructura.
+- PostgreSQL, Redis y servicios internos no publican puertos; el reverse proxy
+  no privilegiado es el único ingreso normal del entorno local.
 
 ## Release status
 

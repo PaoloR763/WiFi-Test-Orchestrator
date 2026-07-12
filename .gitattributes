@@ -1,4 +1,4 @@
-﻿# Normalize text files
+# Normalize text files
 * text=auto
 
 # Cross-platform source files
@@ -46,3 +46,16 @@
 # Network captures
 *.pcap   binary
 *.pcapng binary
+
+# Repository control and extensionless files
+.gitattributes text eol=lf
+.gitignore     text eol=lf
+.dockerignore  text eol=lf
+.env.example   text eol=lf
+Dockerfile     text eol=lf
+Makefile       text eol=lf
+*.conf         text eol=lf
+*.lock         text eol=lf
+*.mmd          text eol=lf
+*.mako          text eol=lf
+.prettierignore text eol=lf

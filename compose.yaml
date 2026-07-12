@@ -1,0 +1,231 @@
+name: wifi-test-orchestrator
+
+services:
+  reverse-proxy:
+    build:
+      context: deployment/proxy
+      dockerfile: Dockerfile
+    ports:
+      - "${WTO_HTTP_PORT:-8080}:8080"
+    depends_on:
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_healthy
+    networks:
+      - edge
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/health/live"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 5s
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: frontend
+      dockerfile: Dockerfile
+    networks:
+      - edge
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 5s
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: backend
+      dockerfile: Dockerfile
+      target: runtime
+    env_file:
+      - .env.example
+    environment:
+      WTO_SERVICE_NAME: backend
+      WTO_POSTGRES_HOST: postgres
+      WTO_REDIS_HOST: redis
+      WTO_ARTIFACT_ROOT: /var/lib/wto/artifacts
+    command:
+      - /bin/sh
+      - -c
+      - alembic upgrade head && exec python -m wto_backend.server
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      artifact-store:
+        condition: service_healthy
+    volumes:
+      - artifact_data:/var/lib/wto/artifacts
+    networks:
+      - edge
+      - internal
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=2)"
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 15s
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: backend
+      dockerfile: Dockerfile
+      target: runtime
+    hostname: worker
+    env_file:
+      - .env.example
+    environment:
+      WTO_SERVICE_NAME: worker
+      WTO_POSTGRES_HOST: postgres
+      WTO_REDIS_HOST: redis
+      WTO_ARTIFACT_ROOT: /var/lib/wto/artifacts
+    command:
+      - celery
+      - --quiet
+      - --app
+      - wto_backend.worker.celery_app
+      - worker
+      - --loglevel
+      - INFO
+      - --hostname
+      - worker@%h
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      artifact-store:
+        condition: service_healthy
+    volumes:
+      - artifact_data:/var/lib/wto/artifacts
+    networks:
+      - internal
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "celery --app wto_backend.worker.celery_app inspect ping --destination worker@$$HOSTNAME --timeout 3 | grep -q pong"
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:17.5-alpine3.21
+    env_file:
+      - .env.example
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+    restart: unless-stopped
+
+  redis:
+    image: redis:7.4.5-alpine3.21
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+    restart: unless-stopped
+
+  artifact-store:
+    image: alpine:3.22.1
+    command:
+      - /bin/sh
+      - -c
+      - "chown 10001:10001 /artifacts && touch /artifacts/.store-ready && exec tail -f /dev/null"
+    volumes:
+      - artifact_data:/artifacts
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /artifacts/.store-ready && test -w /artifacts"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 5s
+    restart: unless-stopped
+
+  simulated-agent:
+    build:
+      context: agents/simulated
+      dockerfile: Dockerfile
+    env_file:
+      - .env.example
+    environment:
+      SIM_BACKEND_URL: http://backend:8000
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - internal
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "from pathlib import Path; import time; p=Path('/tmp/simulated-agent-heartbeat'); raise SystemExit(0 if p.exists() and time.time()-p.stat().st_mtime < 45 else 1)"
+      interval: 10s
+      timeout: 3s
+      retries: 8
+      start_period: 10s
+    restart: unless-stopped
+
+  backend-tools:
+    profiles: ["tools"]
+    build:
+      context: backend
+      dockerfile: Dockerfile
+      target: test
+    env_file:
+      - .env.example
+    environment:
+      WTO_ENVIRONMENT: test
+      WTO_SERVICE_NAME: backend-tools
+      WTO_POSTGRES_HOST: postgres
+      WTO_REDIS_HOST: redis
+      WTO_ARTIFACT_ROOT: /tmp/wto-test-artifacts
+    networks:
+      - internal
+
+  frontend-tools:
+    profiles: ["tools"]
+    build:
+      context: frontend
+      dockerfile: Dockerfile
+      target: tools
+    working_dir: /app
+    network_mode: none
+
+networks:
+  edge:
+  internal:
+    internal: true
+
+volumes:
+  postgres_data:
+  redis_data:
+  artifact_data:
