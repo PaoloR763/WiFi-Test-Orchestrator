@@ -22,6 +22,14 @@ Versioning cuando existan releases publicadas.
 
 - `docs/architecture/` pasa a ser la ubicación canónica de arquitectura.
 - README actualizado para reflejar versiones, prioridades y restricciones.
+- Alineado el contexto normativo maestro con los ADRs aceptados: `reason` es el
+  único nombre conceptual para explicar indisponibilidad, condicionamiento,
+  degradación o decisiones de ejecución; `value: null` nunca significa cero.
+- Separadas las dimensiones conceptuales del capability manifest en
+  `technical_support`, `implementation_status`, `permission_requirement`,
+  `user_interaction`, `background_execution`, `provider` y `limitations`, sin
+  cerrar vocabularios ni JSON Schema antes de la Fase 04.
+- Alineados los ejemplos de capability IDs con el baseline conceptual aprobado.
 
 ### Security
 
