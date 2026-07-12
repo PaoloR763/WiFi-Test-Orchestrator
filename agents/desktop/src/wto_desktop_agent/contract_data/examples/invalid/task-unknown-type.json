@@ -1,0 +1,15 @@
+{
+  "schema_version": "1.0.0",
+  "protocol_version": "1.0.0",
+  "task_id": "60000000-0000-4000-8000-000000000001",
+  "execution_id": "70000000-0000-4000-8000-000000000001",
+  "task_type": "shell.execute",
+  "task_type_version": "1.0.0",
+  "issued_at": "2026-07-12T12:00:00Z",
+  "not_before": "2026-07-12T12:00:00Z",
+  "expires_at": "2026-07-12T12:05:00Z",
+  "idempotency_key": "80000000-0000-4000-8000-000000000001",
+  "required_capabilities": ["network.http.probe"],
+  "foreground_requirement": "not_required",
+  "user_interaction_requirement": "none"
+}

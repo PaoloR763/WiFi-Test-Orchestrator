@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.wifi-test-orchestrator.example/1.0.0/test-result.schema.json",
+  "title": "TestResult",
+  "type": "object", "additionalProperties": false,
+  "required": ["schema_version", "result_id", "task_id", "execution_id", "status", "outcome", "started_at", "finished_at", "provider", "metrics", "idempotency_key", "reason"],
+  "properties": {
+    "schema_version": {"$ref": "common.schema.json#/$defs/schema_version"},
+    "result_id": {"$ref": "common.schema.json#/$defs/uuid"},
+    "task_id": {"$ref": "common.schema.json#/$defs/uuid"},
+    "execution_id": {"$ref": "common.schema.json#/$defs/uuid"},
+    "status": {"type": "string", "enum": ["completed", "failed", "blocked", "skipped"]},
+    "outcome": {"type": "string", "enum": ["pass", "fail", "inconclusive", "not_evaluated"]},
+    "started_at": {"$ref": "common.schema.json#/$defs/utc_timestamp"},
+    "finished_at": {"$ref": "common.schema.json#/$defs/utc_timestamp"},
+    "provider": {"type": "object", "additionalProperties": false, "required": ["provider_id", "provider_version", "method"], "properties": {"provider_id": {"type": "string", "minLength": 3, "maxLength": 64, "pattern": "^[a-z][a-z0-9.-]+$"}, "provider_version": {"$ref": "common.schema.json#/$defs/semver"}, "method": {"type": "string", "minLength": 1, "maxLength": 64}}},
+    "metrics": {"type": "array", "maxItems": 128, "items": {"$ref": "metric.schema.json"}},
+    "idempotency_key": {"$ref": "common.schema.json#/$defs/idempotency_key"},
+    "reason": {"anyOf": [{"$ref": "reason.schema.json"}, {"type": "null"}]}
+  }
+}

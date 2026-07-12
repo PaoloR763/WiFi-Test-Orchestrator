@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.wifi-test-orchestrator.example/1.0.0/common.schema.json",
+  "title": "WTO Common Types",
+  "$defs": {
+    "schema_version": {"type": "string", "const": "1.0.0"},
+    "semver": {"type": "string", "minLength": 5, "maxLength": 32, "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]{1,16})?$"},
+    "uuid": {"type": "string", "format": "uuid", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"},
+    "utc_timestamp": {"type": "string", "format": "date-time", "maxLength": 32, "pattern": "Z$"},
+    "idempotency_key": {"allOf": [{"$ref": "#/$defs/uuid"}]},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "agent_protocol": {"type": "string", "const": "1.0.0"},
+    "platform": {"type": "string", "enum": ["simulated", "windows", "linux", "android", "ios"]},
+    "capability_id": {
+      "type": "string",
+      "enum": [
+        "wifi.connection.read", "wifi.scan", "wifi.rssi.read",
+        "network.icmp.ping", "network.tcp.probe", "network.http.probe",
+        "traffic.tcp.throughput", "traffic.udp.throughput",
+        "traffic.http.download", "traffic.http.upload",
+        "traffic.latency_under_load", "capture.ip",
+        "capture.ieee80211.monitor", "traffic.pcap.replay",
+        "execution.background.continuous"
+      ]
+    }
+  }
+}

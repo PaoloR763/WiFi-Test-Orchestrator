@@ -1,4 +1,4 @@
-# Desarrollo local de la Fase 04
+# Desarrollo local de Fases 04 y 05
 
 ## Requisitos
 
@@ -8,6 +8,26 @@
 
 No se requiere instalar Python, Node.js, PostgreSQL, Redis ni herramientas de
 lint globalmente. Los comandos de calidad se ejecutan en contenedores Linux.
+
+## Agente desktop de Fase 05
+
+La validación unificada construye `desktop-agent-tools`. También puede ejecutarse
+de forma aislada:
+
+```powershell
+docker build --file agents/desktop/Dockerfile --target test --tag wto-desktop-agent-test .
+docker run --rm wto-desktop-agent-test pytest agents/desktop/tests
+```
+
+```sh
+docker build --file agents/desktop/Dockerfile --target test --tag wto-desktop-agent-test .
+docker run --rm wto-desktop-agent-test pytest agents/desktop/tests
+```
+
+Antes del build, `python scripts/sync_desktop_contracts.py --check` comprueba que
+el package data deriva sin drift de `shared/contracts/`.
+`scripts/test_desktop_wheel.py` construye un wheel y lo instala en un venv
+temporal limpio.
 
 ## Inicio rápido
 

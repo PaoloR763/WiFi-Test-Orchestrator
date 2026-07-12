@@ -1,4 +1,5 @@
 # Agents
 
-La Fase 02 incluye únicamente `simulated/`, un proceso de desarrollo
-outbound-only. Los agentes reales de plataforma permanecen diferidos.
+`desktop/` contiene desde Fase 05 el runtime compartido Windows/Linux con
+SQLite, transporte HTTPS público de Fase 04, CLI, plugins allowlisted y adapters
+por plataforma. `simulated/` conserva el proceso de smoke de Compose.

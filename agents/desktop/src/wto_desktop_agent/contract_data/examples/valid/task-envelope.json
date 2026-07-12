@@ -1,0 +1,15 @@
+{
+  "schema_version": "1.0.0",
+  "protocol_version": "1.0.0",
+  "task_id": "40000000-0000-4000-8000-000000000001",
+  "execution_id": "40000000-0000-4000-8000-000000000002",
+  "task_type": "protocol.contract_check",
+  "task_type_version": "1.0.0",
+  "issued_at": "2026-07-12T12:00:00Z",
+  "not_before": "2026-07-12T12:00:00Z",
+  "expires_at": "2026-07-12T12:05:00Z",
+  "idempotency_key": "40000000-0000-4000-8000-000000000003",
+  "required_capabilities": ["network.http.probe"],
+  "foreground_requirement": "required_on_mobile",
+  "user_interaction_requirement": "possible"
+}

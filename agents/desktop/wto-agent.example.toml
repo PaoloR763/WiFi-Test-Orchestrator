@@ -1,0 +1,16 @@
+[agent]
+environment = "production"
+server_url = "https://orchestrator.example"
+state_dir = "/var/lib/wto-agent"
+request_timeout_seconds = 15
+heartbeat_interval_seconds = 30
+polling_interval_seconds = 5
+max_concurrency = 1
+shutdown_grace_seconds = 15
+backoff_initial_seconds = 1
+backoff_max_seconds = 60
+backoff_multiplier = 2
+backoff_jitter_ratio = 0.2
+allowed_plugins = ["protocol.contract_check"]
+allow_in_memory_secret_store = false
+log_level = "INFO"

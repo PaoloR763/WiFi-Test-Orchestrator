@@ -1,5 +1,17 @@
 # Troubleshooting de desarrollo
 
+## Agente desktop
+
+Use `wto-agent doctor --json` sin copiar credentials ni headers a tickets. En
+Linux headless, `secret_store=BLOCKED` significa que Secret Service no está
+disponible o la colección está bloqueada; no existe fallback a archivos o
+SQLite. Un heartbeat o manifest pendiente se reintenta con el mismo payload e
+ID/secuencia después de reiniciar.
+
+Una task local hallada en `interrupted` no se redispatcha: el claim durable pudo
+preceder por milisegundos a la invocación del plugin. Consulte la guía de
+recuperación de Fase 05 antes de cualquier intervención manual.
+
 ## El puerto 8080 está ocupado
 
 Defina otro puerto sólo para el reverse proxy:

@@ -2,7 +2,7 @@
 set -eu
 
 action="${1:-}"
-integration_project_name="wto-phase04-integration"
+integration_project_name="wto-phase05-integration"
 
 backend_tool() {
   docker compose --profile tools run --rm --no-deps --build backend-tools "$@"
@@ -10,6 +10,10 @@ backend_tool() {
 
 frontend_tool() {
   docker compose --profile tools run --rm --build frontend-tools "$@"
+}
+
+desktop_tool() {
+  docker compose --profile tools run --rm --no-deps --build desktop-agent-tools "$@"
 }
 
 assert_integration_project_removed() {
@@ -81,12 +85,14 @@ run_validation() (
   python scripts/validate_repository.py
   python scripts/build_openapi.py --check
   python scripts/check_contract_compatibility.py --verify-release
+  python scripts/sync_desktop_contracts.py --check
   docker compose config --quiet
   python tests/compose/test_compose_policy.py
   "$0" lint
   "$0" format-check
   "$0" typecheck
   "$0" test
+  desktop_tool python /workspace/scripts/test_desktop_wheel.py
   backend_tool python scripts/validate_contracts.py
   backend_tool python scripts/check_openapi_drift.py
   integration_commands
@@ -107,18 +113,22 @@ case "$action" in
     ;;
   lint)
     backend_tool ruff check src tests migrations
+    desktop_tool ruff check src tests
     frontend_tool npm run lint
     ;;
   format-check)
     backend_tool black --check src tests migrations
+    desktop_tool black --check src tests
     frontend_tool npm run format-check
     ;;
   typecheck)
     backend_tool mypy src
+    desktop_tool mypy src
     frontend_tool npm run typecheck
     ;;
   test)
     backend_tool pytest --cov=wto_backend --cov-report=term-missing
+    desktop_tool pytest tests --cov=wto_desktop_agent --cov-report=term-missing
     frontend_tool npm test
     ;;
   test-integration)

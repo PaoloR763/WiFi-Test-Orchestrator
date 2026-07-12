@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.wifi-test-orchestrator.example/1.0.0/progress-event.schema.json",
+  "title": "ProgressEvent",
+  "type": "object", "additionalProperties": false,
+  "required": ["schema_version", "event_id", "task_id", "execution_id", "sequence", "event_type", "occurred_at", "progress_percent", "reason", "idempotency_key"],
+  "properties": {
+    "schema_version": {"$ref": "common.schema.json#/$defs/schema_version"},
+    "event_id": {"$ref": "common.schema.json#/$defs/uuid"},
+    "task_id": {"$ref": "common.schema.json#/$defs/uuid"},
+    "execution_id": {"$ref": "common.schema.json#/$defs/uuid"},
+    "sequence": {"type": "integer", "minimum": 0, "maximum": 9223372036854775807},
+    "event_type": {"type": "string", "enum": ["accepted", "started", "running", "blocked", "skipped", "completed"]},
+    "occurred_at": {"$ref": "common.schema.json#/$defs/utc_timestamp"},
+    "progress_percent": {"type": "number", "minimum": 0, "maximum": 100},
+    "reason": {"anyOf": [{"$ref": "reason.schema.json"}, {"type": "null"}]},
+    "idempotency_key": {"$ref": "common.schema.json#/$defs/idempotency_key"}
+  }
+}

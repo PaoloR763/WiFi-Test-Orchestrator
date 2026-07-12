@@ -1,0 +1,18 @@
+{
+  "schema_version": "1.0.0",
+  "result_id": "90000000-0000-4000-8000-000000000001",
+  "task_id": "60000000-0000-4000-8000-000000000001",
+  "execution_id": "70000000-0000-4000-8000-000000000001",
+  "status": "completed",
+  "outcome": "pass",
+  "started_at": "2026-07-12T12:00:00Z",
+  "finished_at": "2026-07-12T12:00:01Z",
+  "provider": {
+    "provider_id": "native-http",
+    "provider_version": "1.0.0",
+    "method": "GET"
+  },
+  "metrics": {},
+  "idempotency_key": "80000000-0000-4000-8000-000000000002",
+  "reason": null
+}

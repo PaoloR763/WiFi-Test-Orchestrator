@@ -54,6 +54,7 @@
 .env.example   text eol=lf
 Dockerfile     text eol=lf
 Makefile       text eol=lf
+gradlew        text eol=lf
 *.conf         text eol=lf
 *.lock         text eol=lf
 *.mmd          text eol=lf
