@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4.2.2
+      - uses: actions/checkout@v7.0.0
       - name: Validate repository guardrails
         run: python scripts/validate_repository.py
       - name: Validate Compose syntax and policy
