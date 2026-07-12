@@ -42,6 +42,9 @@ Versioning cuando existan releases publicadas.
 - Alineados los ejemplos de capability IDs con el baseline conceptual aprobado.
 - Alineadas las instrucciones específicas de `prompts/` con el contexto
   normativo raíz y los ADRs aceptados.
+- Corregido el Prompt 04 para alinear capability manifests, IDs canónicos,
+  versionado, idempotencia, autoridad contractual, consumidores y tratamiento
+  de credenciales con el baseline normativo aprobado.
 - Documentado el flujo local Windows/WSL2 y Linux, troubleshooting, rollback y
   mapa del monorepo.
 
