@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import os
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
@@ -101,24 +104,157 @@ def test_windows_credential_manager_round_trip_is_cleaned_up() -> None:
 async def test_fixed_powershell_51_inventory_script_returns_strict_json(tmp_path: Path) -> None:
     from wto_desktop_agent.infrastructure.sqlite.store import SQLiteStore
     from wto_desktop_agent.platforms.windows.adapter import WindowsPlatformAdapter
-    from wto_desktop_agent.platforms.windows.powershell import parse_powershell_inventory
+    from wto_desktop_agent.platforms.windows.powershell import (
+        PowerShellAdapter,
+        PowerShellInventory,
+        parse_powershell_inventory,
+    )
 
     settings = AgentSettings(environment="test", server_url="http://testserver", state_dir=tmp_path)
     store = SQLiteStore(tmp_path / "agent.sqlite3")
     store.initialize()
     adapter = WindowsPlatformAdapter(settings, store)
+    started = time.monotonic()
     output = await adapter.process_runner.run(
         CommandRequest(
             command_id="windows.powershell.network_inventory",
             arguments={},
-            timeout_seconds=60.0,
+            timeout_seconds=settings.windows_inventory_timeout_seconds,
         ),
         CancellationToken(),
     )
+    elapsed = time.monotonic() - started
     assert output.return_code == 0, output.stderr.decode("utf-8", errors="replace")
+    document = json.loads(output.stdout)
+    assert set(document) == set(PowerShellInventory.model_fields)
+    assert all(
+        set(adapter) == set(PowerShellAdapter.model_fields) for adapter in document["adapters"]
+    )
     inventory = parse_powershell_inventory(output.stdout)
     assert inventory.powershell_edition == "Desktop"
     assert inventory.powershell_version.startswith("5.1")
+    assert elapsed < settings.windows_inventory_timeout_seconds
+
+
+def test_powershell_51_inventory_global_queries_and_partial_failure(tmp_path: Path) -> None:
+    from wto_desktop_agent.platforms.windows.powershell import (
+        PowerShellAdapter,
+        PowerShellAddress,
+        PowerShellInventory,
+        inventory_script_path,
+        parse_powershell_inventory,
+    )
+
+    script_path = str(inventory_script_path()).replace("'", "''")
+    harness = r"""
+$ErrorActionPreference = 'Stop'
+$global:queryCounts = [ordered]@{
+    drivers = 0; adapters = 0; statistics = 0; ip_configuration = 0
+    addresses = 0; routes = 0; dns = 0
+}
+function Get-CimInstance {
+    param($ClassName, $Property, $OperationTimeoutSec, $ErrorAction)
+    $global:queryCounts.drivers++
+    [pscustomobject]@{
+        DeviceID = 'PCI\MOCK'; Manufacturer = 'Mock Manufacturer'; DeviceName = 'Mock Adapter'
+        DriverProviderName = 'Mock Provider'; DriverVersion = '1.2.3'
+    }
+}
+function Get-NetAdapter {
+    param([switch]$IncludeHidden, $ErrorAction)
+    $global:queryCounts.adapters++
+    [pscustomobject]@{
+        ifIndex = 7; PnPDeviceID = 'PCI\MOCK'
+        InterfaceGuid = '11111111-1111-4111-8111-111111111111'; Name = 'Wi-Fi Mock'
+        InterfaceDescription = 'Mock Adapter'; Status = 'Up'; Virtual = $false
+        HardwareInterface = $true; DriverDescription = 'Mock Driver'; DriverVersion = '0.0.1'
+        MacAddress = '00-11-22-33-44-55'; LinkSpeed = '1 Gbps'
+    }
+}
+function Get-NetAdapterStatistics {
+    param([switch]$IncludeHidden, $ErrorAction)
+    $global:queryCounts.statistics++
+    [pscustomobject]@{
+        ifIndex = 7; ReceivedBytes = 100; SentBytes = 200
+        ReceivedUnicastPackets = 1; ReceivedMulticastPackets = 2; ReceivedBroadcastPackets = 3
+        SentUnicastPackets = 4; SentMulticastPackets = 5; SentBroadcastPackets = 6
+        ReceivedPacketErrors = 0; OutboundPacketErrors = 0
+        ReceivedDiscardedPackets = 0; OutboundDiscardedPackets = 0
+    }
+}
+function Get-NetIPConfiguration {
+    param($ErrorAction)
+    $global:queryCounts.ip_configuration++
+    [pscustomobject]@{
+        InterfaceIndex = 7
+        IPv4DefaultGateway = @([pscustomobject]@{ NextHop = '192.0.2.1' })
+        IPv6DefaultGateway = @()
+    }
+}
+function Get-NetIPAddress {
+    param($ErrorAction)
+    $global:queryCounts.addresses++
+    [pscustomobject]@{
+        InterfaceIndex = 7; AddressFamily = 'IPv4'; IPAddress = '192.0.2.10'; PrefixLength = 24
+    }
+}
+function Get-NetRoute {
+    param($ErrorAction)
+    $global:queryCounts.routes++
+    throw 'controlled route provider failure'
+}
+function Get-DnsClientServerAddress {
+    param($ErrorAction)
+    $global:queryCounts.dns++
+    [pscustomobject]@{ InterfaceIndex = 7; ServerAddresses = @('192.0.2.53') }
+}
+$inventoryScript = '__SCRIPT__'
+$inventoryText = [string](& $inventoryScript)
+[ordered]@{
+    counts = $global:queryCounts
+    inventory = ($inventoryText | ConvertFrom-Json)
+} | ConvertTo-Json -Compress -Depth 10
+""".replace(
+        "__SCRIPT__", script_path
+    )
+    harness_path = tmp_path / "inventory-partial-failure.ps1"
+    harness_path.write_text(harness, encoding="utf-8")
+
+    completed = subprocess.run(  # noqa: S603 - fixed system executable and local harness
+        [
+            str(Path(os.environ["SystemRoot"]) / "System32/WindowsPowerShell/v1.0/powershell.exe"),
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-File",
+            str(harness_path),
+        ],
+        check=False,
+        capture_output=True,
+        timeout=30.0,
+    )
+
+    assert completed.returncode == 0, completed.stderr.decode("utf-8", errors="replace")
+    envelope = json.loads(completed.stdout)
+    assert set(envelope["counts"].values()) == {1}
+    raw_inventory = envelope["inventory"]
+    assert set(raw_inventory) == set(PowerShellInventory.model_fields)
+    assert len(raw_inventory["adapters"]) == 1
+    raw_adapter = raw_inventory["adapters"][0]
+    assert set(raw_adapter) == set(PowerShellAdapter.model_fields)
+    assert set(raw_adapter["addresses"][0]) == set(PowerShellAddress.model_fields)
+    assert raw_adapter["routes_available"] is False
+    assert raw_adapter["routes"] == []
+    assert raw_adapter["statistics_available"] is True
+    assert raw_adapter["ip_configuration_available"] is True
+    assert raw_adapter["addresses_available"] is True
+    assert raw_adapter["dns_available"] is True
+    assert (
+        parse_powershell_inventory(json.dumps(raw_inventory, separators=(",", ":")).encode())
+        .adapters[0]
+        .routes
+        == []
+    )
 
 
 def test_native_wifi_open_enum_is_honest_without_requiring_hardware() -> None:
@@ -158,7 +294,7 @@ def test_powershell_7_inventory_when_available() -> None:
         ],
         check=False,
         capture_output=True,
-        timeout=60.0,
+        timeout=30.0,
     )
     assert completed.returncode == 0, completed.stderr.decode("utf-8", errors="replace")
     assert parse_powershell_inventory(completed.stdout).powershell_edition == "Core"

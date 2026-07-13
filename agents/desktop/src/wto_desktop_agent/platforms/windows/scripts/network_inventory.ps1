@@ -1,65 +1,166 @@
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 
+function Get-InterfaceIndex {
+    param([object]$Item)
+
+    if ($null -ne $Item.ifIndex) {
+        return [int]$Item.ifIndex
+    }
+    return [int]$Item.InterfaceIndex
+}
+
+function Add-IndexedValue {
+    param(
+        [hashtable]$Index,
+        [int]$Key,
+        [object]$Value
+    )
+
+    if ($Index.ContainsKey($Key)) {
+        $Index[$Key] = @($Index[$Key]) + @($Value)
+    } else {
+        $Index[$Key] = @($Value)
+    }
+}
+
+# Each provider is queried globally at most once. Provider failures are isolated so
+# one slow or unavailable source cannot suppress otherwise valid inventory JSON.
 $signedDrivers = @()
-try { $signedDrivers = @(Get-CimInstance -ClassName Win32_PnPSignedDriver -ErrorAction Stop) } catch {}
+try {
+    $signedDrivers = @(
+        Get-CimInstance -ClassName Win32_PnPSignedDriver `
+            -Property DeviceID, Manufacturer, DeviceName, DriverProviderName, DriverVersion `
+            -OperationTimeoutSec 8 -ErrorAction Stop
+    )
+} catch {}
+
 $netAdapters = @()
-try { $netAdapters = @(Get-NetAdapter -IncludeHidden -ErrorAction Stop | Sort-Object -Property ifIndex) } catch {}
+try {
+    $netAdapters = @(Get-NetAdapter -IncludeHidden -ErrorAction Stop | Sort-Object -Property ifIndex)
+} catch {}
+
+$statisticsSourceAvailable = $false
+$allStatistics = @()
+try {
+    $allStatistics = @(Get-NetAdapterStatistics -IncludeHidden -ErrorAction Stop)
+    $statisticsSourceAvailable = $true
+} catch {}
+
+$ipConfigurationSourceAvailable = $false
+$allIpConfigurations = @()
+try {
+    $allIpConfigurations = @(Get-NetIPConfiguration -ErrorAction Stop)
+    $ipConfigurationSourceAvailable = $true
+} catch {}
+
+$addressesSourceAvailable = $false
+$allAddresses = @()
+try {
+    $allAddresses = @(Get-NetIPAddress -ErrorAction Stop)
+    $addressesSourceAvailable = $true
+} catch {}
+
+$routesSourceAvailable = $false
+$allRoutes = @()
+try {
+    $allRoutes = @(Get-NetRoute -ErrorAction Stop)
+    $routesSourceAvailable = $true
+} catch {}
+
+$dnsSourceAvailable = $false
+$allDnsAddresses = @()
+try {
+    $allDnsAddresses = @(Get-DnsClientServerAddress -ErrorAction Stop)
+    $dnsSourceAvailable = $true
+} catch {}
+
+$driversByDeviceId = @{}
+foreach ($driver in $signedDrivers) {
+    if ($null -ne $driver.DeviceID -and -not $driversByDeviceId.ContainsKey([string]$driver.DeviceID)) {
+        $driversByDeviceId[[string]$driver.DeviceID] = $driver
+    }
+}
+
+$statisticsByInterfaceIndex = @{}
+foreach ($statistics in $allStatistics) {
+    $interfaceIndex = Get-InterfaceIndex $statistics
+    if (-not $statisticsByInterfaceIndex.ContainsKey($interfaceIndex)) {
+        $statisticsByInterfaceIndex[$interfaceIndex] = $statistics
+    }
+}
+
+$ipConfigurationsByInterfaceIndex = @{}
+foreach ($ipConfiguration in $allIpConfigurations) {
+    $interfaceIndex = Get-InterfaceIndex $ipConfiguration
+    if (-not $ipConfigurationsByInterfaceIndex.ContainsKey($interfaceIndex)) {
+        $ipConfigurationsByInterfaceIndex[$interfaceIndex] = $ipConfiguration
+    }
+}
+
+$addressesByInterfaceIndex = @{}
+foreach ($address in $allAddresses) {
+    $interfaceIndex = Get-InterfaceIndex $address
+    Add-IndexedValue $addressesByInterfaceIndex $interfaceIndex ([ordered]@{
+        family = [string]$address.AddressFamily
+        address = [string]$address.IPAddress
+        prefix_length = [int]$address.PrefixLength
+    })
+}
+
+$routesByInterfaceIndex = @{}
+foreach ($route in $allRoutes) {
+    $interfaceIndex = Get-InterfaceIndex $route
+    Add-IndexedValue $routesByInterfaceIndex $interfaceIndex ([ordered]@{
+        family = [string]$route.AddressFamily
+        destination_prefix = [string]$route.DestinationPrefix
+        next_hop = [string]$route.NextHop
+        route_metric = [int]$route.RouteMetric
+    })
+}
+
+$dnsByInterfaceIndex = @{}
+foreach ($dnsAddress in $allDnsAddresses) {
+    $interfaceIndex = Get-InterfaceIndex $dnsAddress
+    foreach ($serverAddress in @($dnsAddress.ServerAddresses)) {
+        Add-IndexedValue $dnsByInterfaceIndex $interfaceIndex ([string]$serverAddress)
+    }
+}
+
 $adapters = @($netAdapters | ForEach-Object {
     $adapter = $_
-    $signedDriver = $signedDrivers | Where-Object { $_.DeviceID -eq $adapter.PnPDeviceID } | Select-Object -First 1
+    $interfaceIndex = [int]$adapter.ifIndex
+    $signedDriver = $null
+    if ($null -ne $adapter.PnPDeviceID -and $driversByDeviceId.ContainsKey([string]$adapter.PnPDeviceID)) {
+        $signedDriver = $driversByDeviceId[[string]$adapter.PnPDeviceID]
+    }
     $statistics = $null
-    $statisticsAvailable = $false
-    try {
-        $statistics = Get-NetAdapterStatistics -Name $adapter.Name -IncludeHidden -ErrorAction Stop
-        $statisticsAvailable = $null -ne $statistics
-    } catch {}
+    if ($statisticsByInterfaceIndex.ContainsKey($interfaceIndex)) {
+        $statistics = $statisticsByInterfaceIndex[$interfaceIndex]
+    }
     $ipConfiguration = $null
-    $ipConfigurationAvailable = $false
-    try {
-        $ipConfiguration = Get-NetIPConfiguration -InterfaceIndex $adapter.ifIndex -ErrorAction Stop
-        $ipConfigurationAvailable = $null -ne $ipConfiguration
-    } catch {}
+    if ($ipConfigurationsByInterfaceIndex.ContainsKey($interfaceIndex)) {
+        $ipConfiguration = $ipConfigurationsByInterfaceIndex[$interfaceIndex]
+    }
     $addresses = @()
-    $addressesAvailable = $false
-    try {
-        $addresses = @(Get-NetIPAddress -InterfaceIndex $adapter.ifIndex -ErrorAction Stop | ForEach-Object {
-            [ordered]@{
-                family = [string]$_.AddressFamily
-                address = [string]$_.IPAddress
-                prefix_length = [int]$_.PrefixLength
-            }
-        })
-        $addressesAvailable = $true
-    } catch {}
+    if ($addressesByInterfaceIndex.ContainsKey($interfaceIndex)) {
+        $addresses = @($addressesByInterfaceIndex[$interfaceIndex])
+    }
     $routes = @()
-    $routesAvailable = $false
-    try {
-        $routes = @(Get-NetRoute -InterfaceIndex $adapter.ifIndex -ErrorAction Stop | ForEach-Object {
-            [ordered]@{
-                family = [string]$_.AddressFamily
-                destination_prefix = [string]$_.DestinationPrefix
-                next_hop = [string]$_.NextHop
-                route_metric = [int]$_.RouteMetric
-            }
-        })
-        $routesAvailable = $true
-    } catch {}
+    if ($routesByInterfaceIndex.ContainsKey($interfaceIndex)) {
+        $routes = @($routesByInterfaceIndex[$interfaceIndex])
+    }
     $dns = @()
-    $dnsAvailable = $false
-    try {
-        $dns = @(Get-DnsClientServerAddress -InterfaceIndex $adapter.ifIndex -ErrorAction Stop | ForEach-Object {
-            @($_.ServerAddresses | ForEach-Object { [string]$_ })
-        })
-        $dnsAvailable = $true
-    } catch {}
+    if ($dnsByInterfaceIndex.ContainsKey($interfaceIndex)) {
+        $dns = @($dnsByInterfaceIndex[$interfaceIndex])
+    }
     $gateways = @(
         @($ipConfiguration.IPv4DefaultGateway | ForEach-Object { [string]$_.NextHop })
         @($ipConfiguration.IPv6DefaultGateway | ForEach-Object { [string]$_.NextHop })
     )
     [ordered]@{
         interface_guid = if ($null -eq $adapter.InterfaceGuid) { $null } else { [string]$adapter.InterfaceGuid }
-        interface_index = [int]$adapter.ifIndex
+        interface_index = $interfaceIndex
         name = [string]$adapter.Name
         description = if ($null -eq $adapter.InterfaceDescription) { $null } else { [string]$adapter.InterfaceDescription }
         status = if ($null -eq $adapter.Status) { $null } else { [string]$adapter.Status }
@@ -78,11 +179,11 @@ $adapters = @($netAdapters | ForEach-Object {
         }
         mac_address = if ($null -eq $adapter.MacAddress) { $null } else { [string]$adapter.MacAddress }
         link_speed = if ($null -eq $adapter.LinkSpeed) { $null } else { [string]$adapter.LinkSpeed }
-        statistics_available = $statisticsAvailable
-        ip_configuration_available = $ipConfigurationAvailable
-        addresses_available = $addressesAvailable
-        routes_available = $routesAvailable
-        dns_available = $dnsAvailable
+        statistics_available = $statisticsSourceAvailable -and $null -ne $statistics
+        ip_configuration_available = $ipConfigurationSourceAvailable -and $null -ne $ipConfiguration
+        addresses_available = $addressesSourceAvailable
+        routes_available = $routesSourceAvailable
+        dns_available = $dnsSourceAvailable
         received_bytes = if ($null -eq $statistics) { $null } else { [long]$statistics.ReceivedBytes }
         sent_bytes = if ($null -eq $statistics) { $null } else { [long]$statistics.SentBytes }
         received_packets = if ($null -eq $statistics) { $null } else { [long]($statistics.ReceivedUnicastPackets + $statistics.ReceivedMulticastPackets + $statistics.ReceivedBroadcastPackets) }

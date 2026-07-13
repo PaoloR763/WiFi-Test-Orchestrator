@@ -11,6 +11,8 @@ service-owned enrollment IPC, diagnostic-only Npcap/dumpcap detection and a
 preliminary PyInstaller onedir bundle. It does not implement capture or iperf3.
 
 Windows operations and packaging are documented in `../../docs/phase06/`.
+Windows inventory queries each system provider once and applies the finite
+`windows_inventory_timeout_seconds` process limit (30 seconds by default).
 
 The generated `contract_data/` package content is derived from `shared/contracts/`; run
 `python scripts/sync_desktop_contracts.py` from the repository root to refresh it and use

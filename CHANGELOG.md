@@ -8,6 +8,9 @@ Versioning cuando existan releases publicadas.
 
 ## Unreleased
 
+- Optimizado el inventario Windows para consultar cada proveedor una vez, indexar
+  resultados en memoria, aislar fallos parciales y limitar drivers CIM; el timeout
+  productivo total ahora es explícito y configurable.
 - Agregado el adapter Windows de referencia con Native Wi-Fi mediante `ctypes`,
   telemetría normalizada por campo, PowerShell JSON y fallback netsh localizado.
 - Agregados control Wi-Fi exclusivamente local y allowlisted, journal SQLite

@@ -20,3 +20,9 @@ operador. No existe argumento visible `--token`.
 `allow_in_memory_secret_store` sólo es válido con `environment` igual a
 `development` o `test`. En producción la combinación se rechaza al validar la
 configuración.
+
+En Windows, `windows_inventory_timeout_seconds` limita el proceso allowlisted de
+PowerShell completo. Su valor por defecto es 30 segundos, admite entre 10 y 120
+segundos y también puede configurarse con
+`WTO_AGENT_WINDOWS_INVENTORY_TIMEOUT_SECONDS`. No desactiva el límite interno de
+8 segundos de la consulta opcional de drivers firmados.

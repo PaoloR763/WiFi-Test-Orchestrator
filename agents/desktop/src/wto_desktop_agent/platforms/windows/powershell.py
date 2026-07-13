@@ -9,7 +9,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-NETWORK_INVENTORY_SCRIPT_SHA256 = "2fbe985707d25db3534720920cea28838faeca06c7a6ae0c55eb4f7d50a584a3"
+NETWORK_INVENTORY_SCRIPT_SHA256 = "3c0d2fdde232e4304cb856bdb1b7d70bd0ec6c714a7edee26364c662f8ec9c08"
 
 
 class StrictPowerShellModel(BaseModel):

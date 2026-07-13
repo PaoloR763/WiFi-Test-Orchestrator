@@ -19,8 +19,10 @@ def test_strict_toml_and_precedence(tmp_path: Path, monkeypatch: pytest.MonkeyPa
         encoding="utf-8",
     )
     monkeypatch.setenv("WTO_AGENT_MAX_CONCURRENCY", "3")
+    monkeypatch.setenv("WTO_AGENT_WINDOWS_INVENTORY_TIMEOUT_SECONDS", "45")
     settings = load_settings(config, {"max_concurrency": 2})
     assert settings.max_concurrency == 2
+    assert settings.windows_inventory_timeout_seconds == 45.0
     assert "token" not in AgentSettings.model_fields
 
 

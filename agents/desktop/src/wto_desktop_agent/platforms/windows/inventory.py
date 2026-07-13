@@ -102,12 +102,14 @@ class WindowsInventoryCollector:
         ip_helper: Any,
         process_runner: ProcessRunner,
         *,
+        inventory_timeout_seconds: float = 30.0,
         scan_cooldown_seconds: float = 60.0,
         scan_timeout_seconds: float = 8.0,
     ) -> None:
         self.native_wifi = native_wifi
         self.ip_helper = ip_helper
         self.process_runner = process_runner
+        self.inventory_timeout_seconds = inventory_timeout_seconds
         self.scan_cooldown_seconds = scan_cooldown_seconds
         self.scan_timeout_seconds = scan_timeout_seconds
         self._scan_locks: dict[str, asyncio.Lock] = {}
@@ -156,7 +158,7 @@ class WindowsInventoryCollector:
                 CommandRequest(
                     command_id="windows.powershell.network_inventory",
                     arguments={},
-                    timeout_seconds=20.0,
+                    timeout_seconds=self.inventory_timeout_seconds,
                 ),
                 CancellationToken(),
             )

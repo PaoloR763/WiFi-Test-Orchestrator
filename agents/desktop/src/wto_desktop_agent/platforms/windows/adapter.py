@@ -96,6 +96,7 @@ class WindowsPlatformAdapter:
             native_wifi,
             IpHelperClient(),
             self._process,
+            inventory_timeout_seconds=settings.windows_inventory_timeout_seconds,
             scan_cooldown_seconds=settings.wifi_scan_cooldown_seconds,
             scan_timeout_seconds=settings.wifi_scan_timeout_seconds,
         )

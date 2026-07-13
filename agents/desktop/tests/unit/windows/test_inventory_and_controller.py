@@ -22,11 +22,13 @@ POWERSHELL_EMPTY = (
 class FakeRunner:
     def __init__(self) -> None:
         self.commands: list[str] = []
+        self.requests: list[object] = []
 
     async def run(self, request: object, cancellation: object) -> ProcessResult:
         del cancellation
         command_id = request.command_id  # type: ignore[attr-defined]
         self.commands.append(command_id)
+        self.requests.append(request)
         if command_id == "windows.powershell.network_inventory":
             return ProcessResult(0, POWERSHELL_EMPTY, b"")
         return ProcessResult(0, b"", b"")
@@ -65,6 +67,26 @@ async def test_privacy_denial_does_not_invoke_netsh() -> None:
     scan = await collector.scan(GUID, CancellationToken())
     assert scan.reason is not None
     assert scan.reason.code == "permission_denied"
+
+
+@pytest.mark.asyncio
+async def test_inventory_uses_explicit_configured_process_timeout() -> None:
+    runner = FakeRunner()
+    collector = WindowsInventoryCollector(
+        PrivacyDeniedNative(),  # type: ignore[arg-type]
+        EmptyIpHelper(),
+        runner,
+        inventory_timeout_seconds=17.0,
+    )
+
+    await collector.collect_inventory()
+
+    inventory_request = next(
+        request
+        for request in runner.requests
+        if request.command_id == "windows.powershell.network_inventory"  # type: ignore[attr-defined]
+    )
+    assert inventory_request.timeout_seconds == 17.0  # type: ignore[attr-defined]
 
 
 class FakeScanNative:

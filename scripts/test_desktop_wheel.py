@@ -76,6 +76,8 @@ catalog = json.loads((root / "catalog" / "capabilities-1.0.0.json").read_text(en
 assert len(schemas) == 14
 assert len(manifest["fixtures"]) == 25
 assert len(catalog["capability_ids"]) == 15
+from wto_desktop_agent.platforms.windows.powershell import verify_inventory_script
+assert verify_inventory_script().is_file()
 for entry in manifest["fixtures"]:
     payload = json.loads((root / "examples" / entry["path"]).read_text(encoding="utf-8"))
     try:
@@ -84,7 +86,7 @@ for entry in manifest["fixtures"]:
     except ContractValidationError:
         accepted = False
     assert accepted is bool(entry["valid"]), entry["path"]
-print(json.dumps({"schemas": 14, "fixtures": 25, "capabilities": 15, "wheel": "installed"}))
+print(json.dumps({"schemas": 14, "fixtures": 25, "capabilities": 15, "wheel": "installed", "inventory_script": "verified"}))
 """
         run(str(python), "-c", validation)
 
