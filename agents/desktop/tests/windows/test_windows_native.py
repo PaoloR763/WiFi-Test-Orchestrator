@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import contextlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -121,44 +123,7 @@ INVENTORY_PROVIDERS = (
     "Get-DnsClientServerAddress",
 )
 
-MOCK_PROVIDER_PREAMBLE = r"""
-$ErrorActionPreference = 'Stop'
-function Invoke-WtoInventoryMockBehavior {
-    param([string]$Provider)
-    $logDirectory = $env:WTO_TEST_INVENTORY_LOG_DIRECTORY
-    [IO.File]::WriteAllText(
-        (Join-Path $logDirectory ($Provider + '.pid')),
-        [string]$PID,
-        (New-Object Text.UTF8Encoding($false))
-    )
-    [IO.File]::AppendAllText(
-        (Join-Path $logDirectory ($Provider + '.count')),
-        "1`n",
-        (New-Object Text.UTF8Encoding($false))
-    )
-    $blocked = @($env:WTO_TEST_INVENTORY_BLOCKED_PROVIDERS -split ',')
-    $failed = @($env:WTO_TEST_INVENTORY_FAILED_PROVIDERS -split ',')
-    if ($blocked -contains $Provider) {
-        $childInfo = New-Object Diagnostics.ProcessStartInfo
-        $childInfo.FileName = Join-Path $PSHOME 'powershell.exe'
-        $childInfo.Arguments = '-NoLogo -NoProfile -NonInteractive -Command "Start-Sleep 60"'
-        $childInfo.UseShellExecute = $false
-        $child = [Diagnostics.Process]::Start($childInfo)
-        [IO.File]::WriteAllText(
-            (Join-Path $logDirectory ($Provider + '.child.pid')),
-            [string]$child.Id,
-            (New-Object Text.UTF8Encoding($false))
-        )
-        [Threading.Thread]::Sleep(60000)
-    }
-    if ($failed -contains $Provider) {
-        throw ('controlled provider failure: ' + $Provider)
-    }
-}
-"""
-
-MOCK_MODULES = {
-    "CimCmdlets": r"""
+MOCK_PROVIDER_FUNCTIONS = r"""
 function Get-CimInstance {
     param($ClassName, $Property, $OperationTimeoutSec, $ErrorAction)
     Invoke-WtoInventoryMockBehavior 'Win32_PnPSignedDriver'
@@ -168,9 +133,6 @@ function Get-CimInstance {
         DriverVersion = '1.2.3'
     }
 }
-Export-ModuleMember -Function Get-CimInstance
-""",
-    "NetAdapter": r"""
 function Get-NetAdapter {
     param([switch]$IncludeHidden, $ErrorAction)
     Invoke-WtoInventoryMockBehavior 'Get-NetAdapter'
@@ -194,9 +156,6 @@ function Get-NetAdapterStatistics {
         ReceivedDiscardedPackets = 0; OutboundDiscardedPackets = 0
     }
 }
-Export-ModuleMember -Function Get-NetAdapter, Get-NetAdapterStatistics
-""",
-    "NetTCPIP": r"""
 function Get-NetIPConfiguration {
     param($ErrorAction)
     Invoke-WtoInventoryMockBehavior 'Get-NetIPConfiguration'
@@ -222,42 +181,294 @@ function Get-NetRoute {
         NextHop = '192.0.2.1'; RouteMetric = 25
     }
 }
-Export-ModuleMember -Function Get-NetIPConfiguration, Get-NetIPAddress, Get-NetRoute
-""",
-    "DnsClient": r"""
 function Get-DnsClientServerAddress {
     param($ErrorAction)
     Invoke-WtoInventoryMockBehavior 'Get-DnsClientServerAddress'
     [pscustomobject]@{ InterfaceIndex = 7; ServerAddresses = @('192.0.2.53') }
 }
-Export-ModuleMember -Function Get-DnsClientServerAddress
-""",
-}
-
-
-def _write_inventory_mock_modules(root: Path) -> None:
-    for index, (module_name, functions) in enumerate(MOCK_MODULES.items(), start=1):
-        module = root / module_name
-        module.mkdir(parents=True)
-        (module / f"{module_name}.psm1").write_text(
-            MOCK_PROVIDER_PREAMBLE + functions,
-            encoding="utf-8",
-        )
-        manifest = f"""@{{
-RootModule = '{module_name}.psm1'
-ModuleVersion = '1.0.0'
-GUID = '00000000-0000-4000-8000-{index:012d}'
-FunctionsToExport = @('*')
-CmdletsToExport = @()
-VariablesToExport = @()
-AliasesToExport = @()
-}}
 """
-        (module / f"{module_name}.psd1").write_text(manifest, encoding="utf-8")
+
+FIXED_PROVIDER_QUERY_MARKERS = {
+    "Win32_PnPSignedDriver": "Get-CimInstance -ClassName Win32_PnPSignedDriver",
+    "Get-NetAdapter": "Get-NetAdapter -IncludeHidden -ErrorAction Stop",
+    "Get-NetAdapterStatistics": "Get-NetAdapterStatistics -IncludeHidden -ErrorAction Stop",
+    "Get-NetIPConfiguration": "Get-NetIPConfiguration -ErrorAction Stop",
+    "Get-NetIPAddress": "Get-NetIPAddress -ErrorAction Stop",
+    "Get-NetRoute": "Get-NetRoute -ErrorAction Stop",
+    "Get-DnsClientServerAddress": "Get-DnsClientServerAddress -ErrorAction Stop",
+}
 
 
 def _powershell_literal(path: Path) -> str:
     return str(path).replace("'", "''")
+
+
+def _powershell_string_array(values: tuple[str, ...]) -> str:
+    return "@(" + ", ".join(f"'{value}'" for value in values) + ")"
+
+
+def _validate_test_providers(providers: tuple[str, ...]) -> None:
+    unknown = set(providers) - set(INVENTORY_PROVIDERS)
+    assert not unknown, f"non-canonical test inventory providers: {sorted(unknown)}"
+    assert len(providers) == len(set(providers)), "duplicate test inventory provider"
+
+
+def _write_inventory_provider_shim(
+    tmp_path: Path,
+    log_directory: Path,
+    *,
+    blocked_providers: tuple[str, ...],
+    failed_providers: tuple[str, ...],
+) -> Path:
+    _validate_test_providers(blocked_providers)
+    _validate_test_providers(failed_providers)
+    assert not set(blocked_providers) & set(failed_providers)
+
+    tmp_root = tmp_path.resolve(strict=True)
+    resolved_log_directory = log_directory.resolve(strict=True)
+    assert resolved_log_directory.is_relative_to(tmp_root)
+    shim_path = (tmp_root / "inventory-provider-shim.ps1").resolve()
+    assert shim_path.is_absolute() and shim_path.parent == tmp_root
+
+    canonical_values = ", ".join(f"'{provider}'" for provider in INVENTORY_PROVIDERS)
+    shim_preamble = r"""
+param(
+    [Parameter(Mandatory = $true)]
+    [ValidateSet(__WTO_CANONICAL_PROVIDERS__)]
+    [string]$Provider
+)
+$ErrorActionPreference = 'Stop'
+Set-StrictMode -Version Latest
+$canonicalProviders = __WTO_CANONICAL_PROVIDER_ARRAY__
+$blockedProviders = __WTO_BLOCKED_PROVIDER_ARRAY__
+$failedProviders = __WTO_FAILED_PROVIDER_ARRAY__
+$logDirectory = '__WTO_LOG_DIRECTORY__'
+if ($canonicalProviders -notcontains $Provider) {
+    throw 'non-canonical test inventory provider'
+}
+[IO.File]::WriteAllText(
+    (Join-Path $logDirectory ($Provider + '.shim-loaded')),
+    '1',
+    (New-Object Text.UTF8Encoding($false))
+)
+
+function Invoke-WtoInventoryMockBehavior {
+    param(
+        [ValidateSet(__WTO_CANONICAL_PROVIDERS__)]
+        [string]$ExpectedProvider
+    )
+    if ($ExpectedProvider -ne $Provider) {
+        throw 'test inventory provider mismatch'
+    }
+    [IO.File]::WriteAllText(
+        (Join-Path $logDirectory ($Provider + '.pid')),
+        [string]$PID,
+        (New-Object Text.UTF8Encoding($false))
+    )
+    [IO.File]::AppendAllText(
+        (Join-Path $logDirectory ($Provider + '.count')),
+        "1`n",
+        (New-Object Text.UTF8Encoding($false))
+    )
+    if ($blockedProviders -contains $Provider) {
+        $childInfo = New-Object Diagnostics.ProcessStartInfo
+        $childInfo.FileName = Join-Path $PSHOME 'powershell.exe'
+        $childInfo.Arguments = '-NoLogo -NoProfile -NonInteractive -Command "Start-Sleep 60"'
+        $childInfo.UseShellExecute = $false
+        $childInfo.CreateNoWindow = $true
+        $child = [Diagnostics.Process]::Start($childInfo)
+        [IO.File]::WriteAllText(
+            (Join-Path $logDirectory ($Provider + '.child.pid')),
+            [string]$child.Id,
+            (New-Object Text.UTF8Encoding($false))
+        )
+        [Threading.Thread]::Sleep(60000)
+    }
+    if ($failedProviders -contains $Provider) {
+        throw ('controlled provider failure: ' + $Provider)
+    }
+}
+"""
+    shim = (
+        shim_preamble.replace("__WTO_CANONICAL_PROVIDERS__", canonical_values)
+        .replace("__WTO_CANONICAL_PROVIDER_ARRAY__", _powershell_string_array(INVENTORY_PROVIDERS))
+        .replace("__WTO_BLOCKED_PROVIDER_ARRAY__", _powershell_string_array(blocked_providers))
+        .replace("__WTO_FAILED_PROVIDER_ARRAY__", _powershell_string_array(failed_providers))
+        .replace("__WTO_LOG_DIRECTORY__", _powershell_literal(resolved_log_directory))
+        + MOCK_PROVIDER_FUNCTIONS
+    )
+    shim_path.write_text(shim, encoding="utf-8")
+    assert shim_path.is_file()
+    return shim_path
+
+
+def _inventory_script_with_provider_shim(
+    tmp_path: Path,
+    selected_inventory_script: Path,
+    provider_shim: Path,
+    log_directory: Path,
+) -> Path:
+    from wto_desktop_agent.platforms.windows.powershell import inventory_script_path
+
+    tmp_root = tmp_path.resolve(strict=True)
+    production_script = inventory_script_path().resolve(strict=True)
+    selected_script = selected_inventory_script.resolve(strict=True)
+    assert selected_script == production_script or selected_script.is_relative_to(tmp_root)
+    resolved_shim = provider_shim.resolve(strict=True)
+    resolved_log_directory = log_directory.resolve(strict=True)
+    assert resolved_shim.is_relative_to(tmp_root)
+    assert resolved_log_directory.is_relative_to(tmp_root)
+
+    source = selected_script.read_text(encoding="utf-8")
+    worker_template_anchor = "    $workerTemplate = @'\n"
+    marker_anchor = "    [Console]::Out.Flush()\n    $null = $readyEvent.Set()\n"
+    barrier_anchor = "    $null = $startEvent.WaitOne()\n    try {\n"
+    return_anchor = """    return $workerTemplate.Replace('__WTO_START_EVENT__', $StartEventName).
+        Replace('__WTO_READY_EVENT__', $ReadyEventName).
+        Replace('__WTO_FIXED_QUERY__', $fixedQuery)
+"""
+    arguments_anchor = (
+        "        $startInfo.Arguments = "
+        "'-NoLogo -NoProfile -NonInteractive -EncodedCommand ' + $encodedCommand\n"
+    )
+    for anchor in (
+        worker_template_anchor,
+        marker_anchor,
+        barrier_anchor,
+        return_anchor,
+        arguments_anchor,
+    ):
+        assert source.count(anchor) == 1
+
+    provider_validation = """    $testProviderNames = __WTO_CANONICAL_PROVIDER_ARRAY__
+    if ($testProviderNames -notcontains [string]$Definition.Name) {
+        throw 'non-canonical test inventory provider definition'
+    }
+""".replace(
+        "__WTO_CANONICAL_PROVIDER_ARRAY__", _powershell_string_array(INVENTORY_PROVIDERS)
+    )
+    source = source.replace(
+        worker_template_anchor,
+        provider_validation + worker_template_anchor,
+        1,
+    )
+
+    marker_instrumentation = r"""    [Console]::Out.Flush()
+    [IO.File]::WriteAllText(
+        (Join-Path '__WTO_LOG_DIRECTORY__' ('__WTO_TEST_PROVIDER_NAME__' + '.worker-marker')),
+        '1',
+        (New-Object Text.UTF8Encoding($false))
+    )
+    $null = $readyEvent.Set()
+""".replace(
+        "__WTO_LOG_DIRECTORY__", _powershell_literal(resolved_log_directory)
+    )
+    source = source.replace(marker_anchor, marker_instrumentation, 1)
+
+    barrier_instrumentation = r"""    $null = $startEvent.WaitOne()
+    [IO.File]::WriteAllText(
+        (Join-Path '__WTO_LOG_DIRECTORY__' ('__WTO_TEST_PROVIDER_NAME__' + '.barrier-crossed')),
+        '1',
+        (New-Object Text.UTF8Encoding($false))
+    )
+    . '__WTO_PROVIDER_SHIM__' -Provider '__WTO_TEST_PROVIDER_NAME__'
+    try {
+""".replace(
+        "__WTO_LOG_DIRECTORY__", _powershell_literal(resolved_log_directory)
+    ).replace(
+        "__WTO_PROVIDER_SHIM__", _powershell_literal(resolved_shim)
+    )
+    source = source.replace(barrier_anchor, barrier_instrumentation, 1)
+
+    instrumented_return = (
+        "    return $workerTemplate.Replace('__WTO_START_EVENT__', "
+        "$StartEventName).\n"
+        "        Replace('__WTO_READY_EVENT__', $ReadyEventName).\n"
+        "        Replace('__WTO_TEST_PROVIDER_NAME__', [string]$Definition.Name).\n"
+        "        Replace('__WTO_FIXED_QUERY__', $fixedQuery)\n"
+    )
+    source = source.replace(return_anchor, instrumented_return, 1)
+
+    arguments_instrumentation = r"""        $startInfo.Arguments = (
+            '-NoLogo -NoProfile -NonInteractive -EncodedCommand ' +
+            $encodedCommand
+        )
+        [IO.File]::WriteAllText(
+            (Join-Path '__WTO_LOG_DIRECTORY__' ($definition.Name + '.arguments')),
+            [string]$startInfo.Arguments,
+            (New-Object Text.UTF8Encoding($false))
+        )
+""".replace(
+        "__WTO_LOG_DIRECTORY__", _powershell_literal(resolved_log_directory)
+    )
+    source = source.replace(arguments_anchor, arguments_instrumentation, 1)
+
+    target = tmp_root / "network_inventory.test-provider-shim.ps1"
+    target.write_bytes(source.replace("\r\n", "\n").replace("\n", "\r\n").encode("utf-8"))
+    assert target.resolve(strict=True).is_relative_to(tmp_root)
+    return target
+
+
+def _safe_provider_diagnostic(completed: subprocess.CompletedProcess[bytes], provider: str) -> str:
+    diagnostics = completed.stderr.decode("utf-8", errors="replace").splitlines()
+    safe_lines = [
+        line
+        for line in diagnostics
+        if line.startswith(f"wto_inventory provider={provider} ")
+        or line.startswith(f"wto_test_provider provider={provider} ")
+    ]
+    if not safe_lines:
+        safe_lines = [f"wto_test_provider provider={provider} diagnostic=missing"]
+    return "\n".join(safe_lines)
+
+
+def _assert_fixed_worker_arguments(tmp_path: Path) -> None:
+    log_directory = tmp_path / "provider-logs"
+    provider_shim = (tmp_path / "inventory-provider-shim.ps1").resolve(strict=True)
+    for provider in INVENTORY_PROVIDERS:
+        arguments = (log_directory / f"{provider}.arguments").read_text(encoding="utf-8")
+        match = re.fullmatch(
+            r"-NoLogo -NoProfile -NonInteractive -EncodedCommand ([A-Za-z0-9+/=]+)",
+            arguments,
+        )
+        assert match is not None
+        worker_command = base64.b64decode(match.group(1), validate=True).decode("utf-16-le")
+        shim_invocation = f". '{_powershell_literal(provider_shim)}' -Provider '{provider}'"
+        assert worker_command.count(shim_invocation) == 1
+        assert worker_command.count(FIXED_PROVIDER_QUERY_MARKERS[provider]) == 1
+        assert "Start-Job" not in worker_command
+        assert "JobRepository" not in worker_command
+
+
+def _assert_inventory_providers_invoked_once(
+    tmp_path: Path,
+    completed: subprocess.CompletedProcess[bytes],
+    query_counts: dict[str, int],
+) -> None:
+    for provider in INVENTORY_PROVIDERS:
+        count = query_counts[provider]
+        if count != 1:
+            raise AssertionError(
+                f"provider {provider} was invoked {count} times; expected exactly once\n"
+                f"{_safe_provider_diagnostic(completed, provider)}"
+            ) from None
+
+    diagnostics = completed.stderr.decode("utf-8", errors="strict")
+    for provider in INVENTORY_PROVIDERS:
+        assert (tmp_path / "provider-logs" / f"{provider}.worker-marker").is_file()
+        assert (tmp_path / "provider-logs" / f"{provider}.barrier-crossed").is_file()
+        assert (tmp_path / "provider-logs" / f"{provider}.shim-loaded").is_file()
+        provider_line = next(
+            line
+            for line in diagnostics.splitlines()
+            if line.startswith(f"wto_test_provider provider={provider} ")
+        )
+        assert "marker_published=True" in provider_line
+        assert "barrier_crossed=True" in provider_line
+        assert "shim_loaded=True" in provider_line
+        assert "count=1" in provider_line
+        assert "arguments_fixed=True" in provider_line
+    _assert_fixed_worker_arguments(tmp_path)
 
 
 def _wait_for_file(path: Path, timeout_seconds: float) -> bool:
@@ -277,16 +488,71 @@ def _run_mocked_inventory(
 ) -> tuple[subprocess.CompletedProcess[bytes], float, dict[str, int], dict[str, int]]:
     from wto_desktop_agent.platforms.windows.powershell import inventory_script_path
 
+    tmp_root = tmp_path.resolve(strict=True)
     module_root = tmp_path / "modules"
     log_directory = tmp_path / "provider-logs"
     module_root.mkdir()
     log_directory.mkdir()
-    _write_inventory_mock_modules(module_root)
     selected_inventory_script = inventory_script or inventory_script_path()
+    provider_shim = _write_inventory_provider_shim(
+        tmp_root,
+        log_directory,
+        blocked_providers=blocked_providers,
+        failed_providers=failed_providers,
+    )
+    instrumented_inventory_script = _inventory_script_with_provider_shim(
+        tmp_root,
+        selected_inventory_script,
+        provider_shim,
+        log_directory,
+    )
+    provider_literals = "\n".join(f"    '{provider}'" for provider in INVENTORY_PROVIDERS)
     harness = f"""
 $ErrorActionPreference = 'Stop'
-$inventoryText = [string](& '{_powershell_literal(selected_inventory_script)}')
+$inventoryText = [string](& '{_powershell_literal(instrumented_inventory_script)}')
 $remainingJobs = @(Get-Job -Name 'wto-inventory-*' -ErrorAction SilentlyContinue).Count
+$testProviders = @(
+{provider_literals}
+)
+foreach ($testProvider in $testProviders) {{
+    $countPath = Join-Path '{_powershell_literal(log_directory)}' ($testProvider + '.count')
+    $argumentsPath = Join-Path '{_powershell_literal(log_directory)}' ($testProvider + '.arguments')
+    $count = if (Test-Path -LiteralPath $countPath) {{
+        @(Get-Content -LiteralPath $countPath).Count
+    }} else {{ 0 }}
+    $argumentsFixed = $false
+    if (Test-Path -LiteralPath $argumentsPath) {{
+        $workerArguments = [string](Get-Content -Raw -LiteralPath $argumentsPath)
+        $argumentsFixed = $workerArguments -cmatch (
+            '^-NoLogo -NoProfile -NonInteractive -EncodedCommand [A-Za-z0-9+/=]+$'
+        )
+    }}
+    $workerMarkerPath = Join-Path '{_powershell_literal(log_directory)}' (
+        $testProvider + '.worker-marker'
+    )
+    $barrierPath = Join-Path '{_powershell_literal(log_directory)}' (
+        $testProvider + '.barrier-crossed'
+    )
+    $shimLoadedPath = Join-Path '{_powershell_literal(log_directory)}' (
+        $testProvider + '.shim-loaded'
+    )
+    $testProviderValues = @(
+        $testProvider
+        (Test-Path -LiteralPath $workerMarkerPath)
+        (Test-Path -LiteralPath $barrierPath)
+        (Test-Path -LiteralPath $shimLoadedPath)
+        $count
+        $argumentsFixed
+        '{_powershell_literal(provider_shim)}'
+    )
+    $testProviderFormat = (
+        'wto_test_provider provider={{0}} marker_published={{1}} barrier_crossed={{2}} ' +
+        'shim_loaded={{3}} count={{4}} arguments_fixed={{5}} shim_path=[{{6}}]'
+    )
+    [Console]::Error.WriteLine((
+        $testProviderFormat -f $testProviderValues
+    ))
+}}
 $providerProcesses = @(
     Get-ChildItem -LiteralPath '{_powershell_literal(log_directory)}' -Filter '*.pid' |
         ForEach-Object {{ [int](Get-Content -Raw -LiteralPath $_.FullName) }}
@@ -297,9 +563,20 @@ foreach ($providerProcess in $providerProcesses) {{
         $remainingProcesses++
     }}
 }}
-$cleanupValues = @($remainingJobs, $remainingProcesses)
+$remainingWorkers = 0
+foreach ($testProvider in $testProviders) {{
+    $workerPidPath = Join-Path '{_powershell_literal(log_directory)}' ($testProvider + '.pid')
+    if (Test-Path -LiteralPath $workerPidPath) {{
+        $workerPid = [int](Get-Content -Raw -LiteralPath $workerPidPath)
+        if ($null -ne (Get-Process -Id $workerPid -ErrorAction SilentlyContinue)) {{
+            $remainingWorkers++
+        }}
+    }}
+}}
+$cleanupValues = @($remainingJobs, $remainingProcesses, $remainingWorkers)
 [Console]::Error.WriteLine((
-    'wto_test_cleanup jobs_remaining={{0}} processes_remaining={{1}}' -f $cleanupValues
+    'wto_test_cleanup jobs_remaining={{0}} processes_remaining={{1}} workers_remaining={{2}}' -f
+        $cleanupValues
 ))
 [Console]::Out.Write($inventoryText)
 """
@@ -309,8 +586,6 @@ $cleanupValues = @($remainingJobs, $remainingProcesses)
     environment["PSModulePath"] = str(module_root)
     environment["WTO_INVENTORY_DIAGNOSTICS"] = "1"
     environment["WTO_TEST_INVENTORY_LOG_DIRECTORY"] = str(log_directory)
-    environment["WTO_TEST_INVENTORY_BLOCKED_PROVIDERS"] = ",".join(blocked_providers)
-    environment["WTO_TEST_INVENTORY_FAILED_PROVIDERS"] = ",".join(failed_providers)
     environment["WTO_INVENTORY_OUTER_TIMEOUT_MILLISECONDS"] = str(outer_timeout_milliseconds)
     started = time.monotonic()
     completed = subprocess.run(  # noqa: S603 - fixed system executable and local harness
@@ -737,11 +1012,13 @@ def test_powershell_51_inventory_global_queries_and_partial_failure(
 
     assert completed.returncode == 0, completed.stderr.decode("utf-8", errors="replace")
     assert elapsed < 20.0
-    assert set(query_counts.values()) == {1}
+    _assert_inventory_providers_invoked_once(tmp_path, completed, query_counts)
     diagnostics = completed.stderr.decode("utf-8", errors="strict")
     assert "provider=Get-NetRoute status=failed" in diagnostics
     assert "controlled provider failure" not in diagnostics
-    assert "wto_test_cleanup jobs_remaining=0 processes_remaining=0" in diagnostics
+    assert (
+        "wto_test_cleanup jobs_remaining=0 processes_remaining=0 workers_remaining=0" in diagnostics
+    )
     raw_inventory = json.loads(completed.stdout)
     assert set(raw_inventory) == set(PowerShellInventory.model_fields)
     assert len(raw_inventory["adapters"]) == 1
@@ -791,7 +1068,7 @@ def test_powershell_51_inventory_hard_timeouts_are_fail_soft_and_cleaned_up(
 
     assert completed.returncode == 0, completed.stderr.decode("utf-8", errors="replace")
     assert 4.0 < elapsed < 20.0
-    assert set(query_counts.values()) == {1}
+    _assert_inventory_providers_invoked_once(tmp_path, completed, query_counts)
     diagnostics = completed.stderr.decode("utf-8", errors="strict")
     for provider in INVENTORY_PROVIDERS:
         expected_status = "timed_out" if provider in blocked_providers else "completed"
@@ -812,7 +1089,9 @@ def test_powershell_51_inventory_hard_timeouts_are_fail_soft_and_cleaned_up(
             assert int(fields["elapsed_ms"]) <= int(fields["timeout_ms"]) + 500
             assert f"{provider}.child" in provider_pids
     assert "wto_inventory cleanup jobs_remaining=0 processes_remaining=0" in diagnostics
-    assert "wto_test_cleanup jobs_remaining=0 processes_remaining=0" in diagnostics
+    assert (
+        "wto_test_cleanup jobs_remaining=0 processes_remaining=0 workers_remaining=0" in diagnostics
+    )
 
     raw_inventory = json.loads(completed.stdout)
     assert set(raw_inventory) == set(PowerShellInventory.model_fields)
@@ -883,7 +1162,7 @@ def test_powershell_51_mixed_deadlines_do_not_accumulate_reaping_waits(
     # Explicit worker creation is a separate phase; the common release still
     # gives the 10-second provider its full budget before shared cleanup.
     assert 9.0 < elapsed < 22.0
-    assert set(query_counts.values()) == {1}
+    _assert_inventory_providers_invoked_once(tmp_path, completed, query_counts)
     diagnostics = completed.stderr.decode("utf-8", errors="strict")
     for provider, timeout_ms in expected_timeouts.items():
         line = next(item for item in diagnostics.splitlines() if f"provider={provider} " in item)
@@ -898,7 +1177,9 @@ def test_powershell_51_mixed_deadlines_do_not_accumulate_reaping_waits(
         assert timeout_ms - 100 <= int(fields["elapsed_ms"]) <= timeout_ms + 750
         assert f"{provider}.child" in provider_pids
     assert "wto_inventory cleanup jobs_remaining=0 processes_remaining=0" in diagnostics
-    assert "wto_test_cleanup jobs_remaining=0 processes_remaining=0" in diagnostics
+    assert (
+        "wto_test_cleanup jobs_remaining=0 processes_remaining=0 workers_remaining=0" in diagnostics
+    )
 
     inventory = parse_powershell_inventory(completed.stdout)
     assert len(inventory.adapters) == 1
@@ -997,10 +1278,12 @@ def test_powershell_51_job_cleanup_failure_remains_visible_and_reaps_worker_tree
 
     assert completed.returncode == 0, completed.stderr.decode("utf-8", errors="replace")
     assert 4.0 < elapsed < 20.0
-    assert query_counts[provider] == 1
+    _assert_inventory_providers_invoked_once(tmp_path, completed, query_counts)
     diagnostics = completed.stderr.decode("utf-8", errors="strict")
     assert "wto_inventory cleanup jobs_remaining=0 processes_remaining=1" in diagnostics
-    assert "wto_test_cleanup jobs_remaining=0 processes_remaining=0" in diagnostics
+    assert (
+        "wto_test_cleanup jobs_remaining=0 processes_remaining=0 workers_remaining=0" in diagnostics
+    )
     parse_powershell_inventory(completed.stdout)
     _assert_provider_processes_stopped(provider_pids)
 
