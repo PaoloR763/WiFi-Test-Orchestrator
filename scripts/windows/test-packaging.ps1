@@ -12,6 +12,22 @@ $InstallRoot = Join-Path $WorkRoot 'ProgramFiles\Agent'
 $DataRoot = Join-Path $WorkRoot 'ProgramData\Agent'
 $Layout = Resolve-WtoPathLayout -InstallRoot $InstallRoot -DataRoot $DataRoot -TestMode -WorkRoot $WorkRoot
 $ConfigTemplate = Join-Path $Root 'agents\desktop\wto-agent.example.toml'
+$SourceInventoryScript = Join-Path $Root 'agents\desktop\src\wto_desktop_agent\platforms\windows\scripts\network_inventory.ps1'
+$BundledInventoryScript = Join-Path $Bundle '_internal\wto_desktop_agent\platforms\windows\scripts\network_inventory.ps1'
+$BundleManifest = Get-Content -Raw -LiteralPath (Join-Path $Bundle 'bundle-manifest.json') | ConvertFrom-Json
+$InventoryManifestPath = '_internal/wto_desktop_agent/platforms/windows/scripts/network_inventory.ps1'
+$InventoryManifestHash = $BundleManifest.files.PSObject.Properties[$InventoryManifestPath].Value
+$ExpectedInventoryHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $SourceInventoryScript).Hash.ToLowerInvariant()
+if (-not (Test-Path -LiteralPath $BundledInventoryScript -PathType Leaf)) { throw 'PyInstaller bundle omitted the inventory script.' }
+if ($InventoryManifestHash -ne $ExpectedInventoryHash) { throw 'PyInstaller inventory manifest hash differs from the source.' }
+$SourceInventoryBytes = [IO.File]::ReadAllBytes($SourceInventoryScript)
+$BundledInventoryBytes = [IO.File]::ReadAllBytes($BundledInventoryScript)
+if (
+    $SourceInventoryBytes.Length -ne $BundledInventoryBytes.Length -or
+    [Convert]::ToBase64String($SourceInventoryBytes) -cne [Convert]::ToBase64String($BundledInventoryBytes)
+) {
+    throw 'PyInstaller bundled inventory script differs from the source.'
+}
 
 Get-ChildItem -LiteralPath $PSScriptRoot -Filter '*.ps1' | ForEach-Object {
     $null = [scriptblock]::Create((Get-Content -Raw -LiteralPath $_.FullName))

@@ -8,9 +8,22 @@ Versioning cuando existan releases publicadas.
 
 ## Unreleased
 
-- Optimizado el inventario Windows para consultar cada proveedor una vez, indexar
-  resultados en memoria, aislar fallos parciales y limitar drivers CIM; el timeout
-  productivo total ahora es explícito y configurable.
+- Endurecido el inventario Windows con siete procesos `powershell.exe`
+  explícitos y consultas fijas, sin `Start-Job`, `JobRepository` ni terminación
+  por PID. Cada worker publica PID+creation-time antes de una barrera común; el
+  coordinador valida esa identidad por su handle estable, lo asigna a un Job
+  Object propio y recién entonces libera el provider. Los budgets concurrentes
+  de 8/8/5/10/5/5/5 segundos comienzan en un timestamp común y un guard de
+  release aborta fail-soft si no caben completos junto con cleanup y ensamblado.
+  El reap compartido dispone de 3 segundos más 1 segundo final, observa y
+  dispone streams y cierra handles exactamente una vez. El coordinador tiene
+  una ventana interna de planificación de 26 segundos, una fase de providers de
+  20 segundos y una última barrera dura externa de 30 segundos. El process runner crea cada coordinador
+  suspendido, lo asigna a su Job Object antes de `ResumeThread`, y conserva un
+  `ProcessContext` por token/identidad de objeto: el PID es sólo metadata.
+  El deadline de solicitud comienza antes del spawn y el cleanup tiene 5
+  segundos de gracia, con los últimos 100 ms reservados para force-close y
+  drenaje. Los diagnósticos continúan exclusivamente por stderr.
 - Agregado el adapter Windows de referencia con Native Wi-Fi mediante `ctypes`,
   telemetría normalizada por campo, PowerShell JSON y fallback netsh localizado.
 - Agregados control Wi-Fi exclusivamente local y allowlisted, journal SQLite

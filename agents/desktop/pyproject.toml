@@ -79,6 +79,7 @@ module = [
   "win32file",
   "win32job",
   "win32pipe",
+  "win32process",
   "win32security",
   "win32service",
   "win32serviceutil",

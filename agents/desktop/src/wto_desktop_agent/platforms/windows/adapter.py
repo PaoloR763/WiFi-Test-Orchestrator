@@ -30,7 +30,15 @@ class _NoArguments(BaseModel):
 
 
 def _trusted_environment() -> dict[str, str]:
-    allowed = ("SystemRoot", "WINDIR", "PATH", "PSModulePath", "TEMP", "TMP")
+    allowed = (
+        "SystemRoot",
+        "WINDIR",
+        "PATH",
+        "PSModulePath",
+        "TEMP",
+        "TMP",
+        "WTO_INVENTORY_DIAGNOSTICS",
+    )
     return {name: os.environ[name] for name in allowed if name in os.environ}
 
 
@@ -44,6 +52,10 @@ class WindowsPlatformAdapter:
         netsh = system32 / "netsh.exe"
         script = verify_inventory_script()
         self._capture_detector = NpcapDetector()
+        inventory_environment = _trusted_environment()
+        inventory_environment["WTO_INVENTORY_OUTER_TIMEOUT_MILLISECONDS"] = str(
+            int(settings.windows_inventory_timeout_seconds * 1000)
+        )
         commands = {
             "windows.powershell.network_inventory": CommandSpec(
                 command_id="windows.powershell.network_inventory",
@@ -57,7 +69,7 @@ class WindowsPlatformAdapter:
                     str(script),
                 ],
                 cwd=script.parent,
-                environment=_trusted_environment(),
+                environment=inventory_environment,
                 max_output_bytes=4_194_304,
             ),
             "windows.netsh.wlan_show_interfaces": CommandSpec(

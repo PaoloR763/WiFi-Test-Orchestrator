@@ -94,13 +94,18 @@ jobs:
           docker run --rm wto-desktop-agent-test python scripts/test_desktop_wheel.py
 
   desktop-agent-windows:
+    name: Desktop agent Windows (Python ${{ matrix.python-version }})
     runs-on: windows-2025
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.12', '3.13']
     steps:
       - uses: actions/checkout@v6.0.2
       - uses: actions/setup-python@v6.1.0
         with:
-          python-version: '3.12'
+          python-version: ${{ matrix.python-version }}
           cache: pip
           cache-dependency-path: |
             agents/desktop/requirements.lock
@@ -113,6 +118,7 @@ jobs:
           python -m pip install --no-deps --editable agents/desktop
           python -m pip check
       - name: Desktop lint, format and types
+        if: matrix.python-version == '3.12'
         working-directory: agents/desktop
         run: |
           ruff check src tests
@@ -120,6 +126,15 @@ jobs:
           mypy src
           mypy --platform linux src
           mypy --platform win32 src
+      - name: Diagnose PowerShell 5.1 inventory provider timings
+        if: matrix.python-version == '3.12'
+        working-directory: agents/desktop
+        env:
+          WTO_INVENTORY_DIAGNOSTICS: "1"
+        run: >-
+          pytest
+          tests/windows/test_windows_native.py::test_fixed_powershell_51_inventory_script_returns_strict_json
+          -vv -s
       - name: Native Windows adapter and security tests
         working-directory: agents/desktop
         run: pytest tests/windows -m windows -vv
@@ -127,8 +142,10 @@ jobs:
         working-directory: agents/desktop
         run: pytest tests --ignore=tests/windows --cov=wto_desktop_agent --cov-report=term-missing
       - name: Build and install clean desktop wheel
+        if: matrix.python-version == '3.12'
         run: python scripts/test_desktop_wheel.py
       - name: Build PyInstaller onedir and exercise packaging scripts
+        if: matrix.python-version == '3.12'
         shell: powershell
         run: |
           ./scripts/windows/build-agent.ps1 -OutputRoot "$env:RUNNER_TEMP/wto-agent-build"
