@@ -19,7 +19,7 @@ class WindowsCredentialManagerStore:
                 {
                     "Type": win32cred.CRED_TYPE_GENERIC,
                     "TargetName": self._PREFIX + key,
-                    "CredentialBlob": value.encode("utf-16-le"),
+                    "CredentialBlob": value,
                     "Persist": win32cred.CRED_PERSIST_LOCAL_MACHINE,
                     "UserName": "wto-desktop-agent",
                 },

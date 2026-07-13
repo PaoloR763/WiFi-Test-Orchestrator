@@ -25,6 +25,7 @@ dev = [
   "pytest-asyncio==1.0.0",
   "pytest-cov==6.2.1",
   "ruff==0.12.1",
+  "pyinstaller==6.21.0",
 ]
 
 [project.scripts]
@@ -37,7 +38,11 @@ package-dir = {"" = "src"}
 where = ["src"]
 
 [tool.setuptools.package-data]
-wto_desktop_agent = ["contract_data/**/*", "infrastructure/sqlite/versions/*.sql"]
+wto_desktop_agent = [
+  "contract_data/**/*",
+  "infrastructure/sqlite/versions/*.sql",
+  "platforms/windows/scripts/*.ps1",
+]
 
 [tool.black]
 line-length = 100
@@ -60,8 +65,34 @@ strict = true
 mypy_path = "src"
 
 [[tool.mypy.overrides]]
-module = ["jsonschema", "jsonschema.*", "secretstorage", "secretstorage.*", "win32cred", "win32job", "win32api", "win32con"]
+module = [
+  "jsonschema",
+  "jsonschema.*",
+  "secretstorage",
+  "secretstorage.*",
+  "servicemanager",
+  "pywintypes",
+  "win32api",
+  "win32con",
+  "win32cred",
+  "win32event",
+  "win32file",
+  "win32job",
+  "win32pipe",
+  "win32security",
+  "win32service",
+  "win32serviceutil",
+]
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = [
+  "wto_desktop_agent.platforms.windows.ip_helper",
+  "wto_desktop_agent.platforms.windows.native_wifi.bindings",
+  "wto_desktop_agent.platforms.windows.network_controller",
+  "wto_desktop_agent.platforms.windows.npcap",
+]
+disable_error_code = ["attr-defined"]
 
 [tool.pytest.ini_options]
 addopts = "-ra --strict-markers"

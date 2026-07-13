@@ -93,6 +93,11 @@ def files_to_scan() -> list[Path]:
                 and (path.suffix in TEXT_SUFFIXES or path.name in {"Dockerfile"})
                 and "node_modules" not in path.parts
                 and "dist" not in path.parts
+                and "build" not in path.parts
+                and ".mypy_cache" not in path.parts
+                and ".pytest_cache" not in path.parts
+                and "__pycache__" not in path.parts
+                and not any(part.startswith("pytest-cache-files-") for part in path.parts)
             )
     return files
 
@@ -219,7 +224,11 @@ def validate_desktop_ci_policy(failures: list[str]) -> None:
 
 
 def validate_line_endings(failures: list[str]) -> None:
-    for path in (ROOT / "scripts").glob("*.ps1"):
+    powershell_scripts = [
+        *(ROOT / "scripts").rglob("*.ps1"),
+        *(ROOT / "agents").rglob("*.ps1"),
+    ]
+    for path in powershell_scripts:
         data = path.read_bytes()
         remainder = data.replace(b"\r\n", b"")
         if b"\r" in remainder or b"\n" in remainder:

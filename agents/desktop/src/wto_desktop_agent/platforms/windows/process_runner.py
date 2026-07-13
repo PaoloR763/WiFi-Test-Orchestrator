@@ -10,8 +10,8 @@ from wto_desktop_agent.platforms.common import AllowlistedProcessRunner, Command
 
 
 class WindowsProcessRunner(AllowlistedProcessRunner):
-    def __init__(self) -> None:
-        super().__init__({})
+    def __init__(self, commands: dict[str, CommandSpec] | None = None) -> None:
+        super().__init__(commands or {})
         self._jobs: dict[int, object] = {}
 
     async def start_process(

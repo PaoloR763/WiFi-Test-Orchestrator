@@ -2,19 +2,21 @@ from __future__ import annotations
 
 import json
 import logging
+import logging.handlers
 import re
 import sys
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any, TextIO
 
 _MACHINE_SECRET = re.compile(r"wto_(?:enr|ac)_1\.[0-9a-f-]{36}\.[A-Za-z0-9_-]{43}")
 _BEARER = re.compile(r"(?i)Bearer\s+[A-Za-z0-9._-]+")
 _NAMED_SECRET = re.compile(
-    r"(?i)\b(authorization|cookie|nonce|password|secret|token|credential|"
+    r"(?i)\b(authorization|cookie|nonce|password|secret|token|credential|ssid|bssid|"
     r"[a-z0-9_]*(?:hmac|signing|encryption)_key)\b\s*[:=]\s*([^\s,;]+)"
 )
 _SECRET_KEYS = re.compile(
-    r"(?i)(authorization|cookie|nonce|password|secret|token|credential|hmac|signing|encryption)"
+    r"(?i)(authorization|cookie|nonce|password|secret|token|credential|ssid|bssid|hmac|signing|encryption)"
 )
 
 
@@ -53,8 +55,23 @@ class JsonFormatter(logging.Formatter):
         return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
 
 
-def configure_logging(level: str, stream: TextIO | None = None) -> None:
-    handler = logging.StreamHandler(stream or sys.stdout)
+def configure_logging(
+    level: str, stream: TextIO | None = None, *, log_path: Path | None = None
+) -> None:
+    if stream is not None and log_path is not None:
+        raise ValueError("stream and log_path are mutually exclusive")
+    handler: logging.Handler
+    if log_path is not None:
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        handler = logging.handlers.RotatingFileHandler(
+            log_path,
+            maxBytes=10 * 1024 * 1024,
+            backupCount=5,
+            encoding="utf-8",
+            delay=True,
+        )
+    else:
+        handler = logging.StreamHandler(stream or sys.stdout)
     handler.setFormatter(JsonFormatter())
     root = logging.getLogger()
     root.handlers.clear()

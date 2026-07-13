@@ -1,4 +1,4 @@
-name: phase-05-ci
+name: phase-06-ci
 
 on:
   push:
@@ -128,3 +128,8 @@ jobs:
         run: pytest tests --ignore=tests/windows --cov=wto_desktop_agent --cov-report=term-missing
       - name: Build and install clean desktop wheel
         run: python scripts/test_desktop_wheel.py
+      - name: Build PyInstaller onedir and exercise packaging scripts
+        shell: powershell
+        run: |
+          ./scripts/windows/build-agent.ps1 -OutputRoot "$env:RUNNER_TEMP/wto-agent-build"
+          ./scripts/windows/test-packaging.ps1 -BundlePath "$env:RUNNER_TEMP/wto-agent-build/dist/wto-agent" -WorkRoot "$env:RUNNER_TEMP/wto-agent-install-test"

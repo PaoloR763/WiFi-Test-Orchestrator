@@ -8,6 +8,15 @@ Versioning cuando existan releases publicadas.
 
 ## Unreleased
 
+- Agregado el adapter Windows de referencia con Native Wi-Fi mediante `ctypes`,
+  telemetría normalizada por campo, PowerShell JSON y fallback netsh localizado.
+- Agregados control Wi-Fi exclusivamente local y allowlisted, journal SQLite
+  schema 2, Windows Service LocalService y named pipe cerrado para enrollment.
+- Agregados packaging preliminar PyInstaller onedir y detección diagnóstica de
+  Npcap/dumpcap sin captura; iperf3 permanece fuera de Fase 06.
+- Endurecidos install/uninstall/upgrade/rollback de Windows con layout canónico,
+  TestMode confinado por WorkRoot, rechazo de traversal/reparse points y borrado
+  recursivo validado inmediatamente; ampliados los tests del manifest final Windows.
 - Agregado el runtime desktop compartido Windows/Linux con configuración TOML
   estricta, SQLite migrable, CLI, heartbeat, Capability Manifest, rotación
   recuperable, scheduler local y TaskRunner.

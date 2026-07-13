@@ -1,0 +1,7 @@
+Hay 1 interfaz en el sistema:
+
+    Nombre                 : Wi-Fi
+    Descripcion            : Adaptador Wi-Fi
+    GUID                   : 22222222-2222-4222-8222-222222222222
+    Estado                 : desconectado
+    Etiqueta desconocida   : valor inesperado
