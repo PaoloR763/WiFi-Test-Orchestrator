@@ -27,6 +27,12 @@ class AgentSettings(BaseModel):
     backoff_multiplier: float = Field(default=2.0, ge=1.0, le=10.0)
     backoff_jitter_ratio: float = Field(default=0.2, ge=0.0, le=1.0)
     allowed_plugins: frozenset[str] = frozenset({"protocol.contract_check"})
+    allowed_interface_guids: frozenset[str] = frozenset()
+    allowed_wifi_profiles: frozenset[str] = frozenset()
+    windows_inventory_timeout_seconds: float = Field(default=30.0, ge=10.0, le=120.0)
+    wifi_scan_cooldown_seconds: float = Field(default=60.0, ge=10.0, le=3600.0)
+    wifi_scan_timeout_seconds: float = Field(default=8.0, ge=4.0, le=60.0)
+    allow_local_wifi_control: bool = False
     allow_in_memory_secret_store: bool = False
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
 
@@ -69,6 +75,7 @@ _ENV_NAMES = {
     "WTO_AGENT_POLLING_INTERVAL_SECONDS": "polling_interval_seconds",
     "WTO_AGENT_MAX_CONCURRENCY": "max_concurrency",
     "WTO_AGENT_SHUTDOWN_GRACE_SECONDS": "shutdown_grace_seconds",
+    "WTO_AGENT_WINDOWS_INVENTORY_TIMEOUT_SECONDS": "windows_inventory_timeout_seconds",
     "WTO_AGENT_LOG_LEVEL": "log_level",
 }
 

@@ -1,0 +1,12 @@
+There is 1 interface on the system:
+
+    Name                   : Wi-Fi Unicode
+    Description            : Contoso Wireless Adapter
+    GUID                   : 11111111-1111-4111-8111-111111111111
+    State                  : connected
+    SSID                   : Lab Network
+    BSSID                  : 00:11:22:33:44:55
+    Signal                 : 82%
+    Channel                : 36
+    Receive rate (Mbps)    : 866.7
+    Transmit rate (Mbps)   : 780

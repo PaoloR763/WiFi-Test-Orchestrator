@@ -51,3 +51,6 @@ class SimulatedPlatformAdapter:
     @property
     def service_manager(self) -> DeferredServiceManager:
         return self._services
+
+    def capability_overrides(self) -> dict[str, dict[str, object]]:
+        return {}

@@ -44,8 +44,7 @@ class DoctorService:
                     name="contracts",
                     status="OK" if valid else "BLOCKED",
                     detail=(
-                        f"Packaged contracts: {len(schemas)} schemas and "
-                        f"{fixture_count} fixtures"
+                        f"Packaged contracts: {len(schemas)} schemas and {fixture_count} fixtures"
                     ),
                 )
             )
@@ -72,4 +71,23 @@ class DoctorService:
             )
         checks.append(self.platform.secret_store.doctor())
         checks.append(self.platform.service_manager.doctor())
+        if self.platform.platform_id == "windows":
+            connection_override = self.platform.wifi_collector.capability_overrides().get(
+                "wifi.connection.read", {}
+            )
+            permission = connection_override.get("permission_requirement")
+            denied = isinstance(permission, dict) and permission.get("status") == "denied"
+            checks.append(
+                DoctorCheck(
+                    name="windows_wifi_privacy",
+                    status="BLOCKED" if denied else "DEGRADED",
+                    detail=(
+                        "Windows denied Wi-Fi location/privacy access; enable Location services "
+                        "and permit the service account before retrying"
+                        if denied
+                        else "Wi-Fi association, BSSID and scan depend on Windows Location "
+                        "privacy permission; Session 0 never opens consent UI"
+                    ),
+                )
+            )
         return checks

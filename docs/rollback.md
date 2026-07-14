@@ -13,6 +13,9 @@ credentials desde SecretStore a la base o a archivos para facilitar rollback.
 El rollback de aplicación debe conservar inicialmente el schema aditivo. El
 downgrade a la baseline vacía destruye usuarios, sesiones y auditoría.
 
+Para Fase 06 consulte
+[`docs/phase06/recovery-upgrade-and-rollback.md`](phase06/recovery-upgrade-and-rollback.md).
+
 ## Detener sin perder datos
 
 ```powershell

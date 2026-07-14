@@ -1,6 +1,8 @@
 -r requirements.lock
+altgraph==0.17.5
 black==25.1.0
 click==8.4.2
+colorama==0.4.6; sys_platform == "win32"
 coverage==7.15.0
 hypothesis==6.135.20
 iniconfig==2.3.0
@@ -8,8 +10,12 @@ mypy==1.16.1
 mypy_extensions==1.1.0
 packaging==26.2
 pathspec==1.1.1
+pefile==2024.8.26; sys_platform == "win32"
 platformdirs==4.10.0
 pluggy==1.6.0
+pyinstaller==6.21.0
+pyinstaller-hooks-contrib==2026.6
+pywin32-ctypes==0.2.3; sys_platform == "win32"
 Pygments==2.20.0
 pytest==8.4.1
 pytest-asyncio==1.0.0

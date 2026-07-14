@@ -1,4 +1,4 @@
-# Desarrollo local de Fases 04 y 05
+# Desarrollo local de Fases 04, 05 y 06
 
 ## Requisitos
 
@@ -10,6 +10,11 @@ No se requiere instalar Python, Node.js, PostgreSQL, Redis ni herramientas de
 lint globalmente. Los comandos de calidad se ejecutan en contenedores Linux.
 
 ## Agente desktop de Fase 05
+
+El adapter Windows y su packaging preliminar se validan con los scripts de
+`scripts/windows/`; los requisitos y limites estan en
+[`docs/phase06`](phase06/README.md). La matriz de hardware real parte siempre
+en estado NOT RUN.
 
 La validación unificada construye `desktop-agent-tools`. También puede ejecutarse
 de forma aislada:

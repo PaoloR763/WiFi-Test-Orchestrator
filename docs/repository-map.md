@@ -20,5 +20,10 @@
 | `scripts/` | Operación, smoke y guardrails del repositorio |
 | `.github/workflows/` | CI Linux basada en contenedores |
 
+Rutas agregadas en Fase 06:
+
+- `docs/phase06/`: adapter Windows, Native Wi-Fi, servicio y seguridad.
+- `scripts/windows/`: build, instalacion, upgrade, rollback y validacion Windows.
+
 Los endpoints y DTOs bajo `/demo` son scaffolding transitorio. No pertenecen a
 `shared/`, no aparecen en OpenAPI y deben ser reemplazados en Fases 03 y 04.

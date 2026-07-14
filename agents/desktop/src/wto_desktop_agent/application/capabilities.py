@@ -83,7 +83,7 @@ class CapabilityRegistry:
             background_status = "continuous"
             background_reason = None
 
-        return {
+        entry: dict[str, object] = {
             "id": capability_id,
             "version": "1.0.0",
             "technical_support": {
@@ -115,6 +115,21 @@ class CapabilityRegistry:
             },
             "limitations": {"status": limitation_status, "reason": limitation_reason},
         }
+        override = self.platform.capability_overrides().get(capability_id)
+        if override:
+            unknown = set(override) - {
+                "technical_support",
+                "implementation_status",
+                "permission_requirement",
+                "user_interaction",
+                "background_execution",
+                "provider",
+                "limitations",
+            }
+            if unknown:
+                raise RuntimeError(f"unknown capability override dimensions: {sorted(unknown)}")
+            entry.update(override)
+        return entry
 
     def entries(self) -> list[dict[str, object]]:
         return [self._entry(capability_id) for capability_id in self.capability_ids]

@@ -250,3 +250,16 @@ class IdentityManager:
                 "rotation_state": "revoked",
             }
         )
+
+    def purge_local_identity(self) -> None:
+        identity = self.store.identity()
+        if identity:
+            for field in (
+                "active_credential_ref",
+                "pending_credential_ref",
+                "previous_credential_ref",
+            ):
+                reference = identity.get(field)
+                if reference:
+                    self.platform.secret_store.delete(str(reference))
+        self.store.purge_identity()

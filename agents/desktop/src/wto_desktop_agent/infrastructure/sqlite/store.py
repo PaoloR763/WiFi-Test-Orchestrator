@@ -18,7 +18,7 @@ from wto_desktop_agent.domain.states import TaskState, ensure_transition
 from wto_desktop_agent.infrastructure.contracts import canonical_json
 
 APPLICATION_ID = 0x57544F05
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 def utc_now() -> str:
@@ -74,8 +74,14 @@ class SQLiteStore:
                 failed = self.path.with_name(f"{self.path.name}.migration-failed-{uuid4()}")
                 if self.path.exists():
                     shutil.copy2(self.path, failed)
+                self._remove_sqlite_sidecars(self.path)
                 shutil.copy2(backup, self.path)
             raise
+
+    @staticmethod
+    def _remove_sqlite_sidecars(path: Path) -> None:
+        for suffix in ("-wal", "-shm"):
+            Path(f"{path}{suffix}").unlink(missing_ok=True)
 
     def _apply_migrations(self, connection: sqlite3.Connection) -> None:
         migration_root = Path(
@@ -110,12 +116,180 @@ class SQLiteStore:
 
     def create_verified_backup(self, destination: Path) -> None:
         destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.unlink(missing_ok=True)
+        self._remove_sqlite_sidecars(destination)
         with self.connection() as source, self._connect(destination) as target:
             source.backup(target)
             result = str(target.execute("PRAGMA quick_check").fetchone()[0])
             if result != "ok":
                 destination.unlink(missing_ok=True)
                 raise RuntimeError("SQLite backup verification failed")
+
+    @staticmethod
+    def verify_backup(path: Path) -> int:
+        resolved = path.resolve(strict=True)
+        connection = sqlite3.connect(f"{resolved.as_uri()}?mode=ro", uri=True)
+        try:
+            if str(connection.execute("PRAGMA quick_check").fetchone()[0]) != "ok":
+                raise RuntimeError("SQLite backup quick_check failed")
+            if int(connection.execute("PRAGMA application_id").fetchone()[0]) != APPLICATION_ID:
+                raise RuntimeError("SQLite backup belongs to another application")
+            version = int(connection.execute("PRAGMA user_version").fetchone()[0])
+            if version not in {1, SCHEMA_VERSION}:
+                raise RuntimeError("SQLite backup schema is unsupported")
+            return version
+        finally:
+            connection.close()
+
+    def restore_verified_backup(self, source: Path) -> int:
+        source = source.resolve(strict=True)
+        if self.path.exists() and source.samefile(self.path):
+            raise ValueError("SQLite backup and destination must differ")
+        version = self.verify_backup(source)
+        rollback = self.path.with_suffix(self.path.suffix + ".pre-restore.bak")
+        existed = self.path.exists()
+        if existed:
+            self.create_verified_backup(rollback)
+        try:
+            self._remove_sqlite_sidecars(self.path)
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, self.path)
+            if self.verify_backup(self.path) != version:
+                raise RuntimeError("restored SQLite schema differs from verified backup")
+        except Exception:
+            self._remove_sqlite_sidecars(self.path)
+            if existed and rollback.exists():
+                shutil.copy2(rollback, self.path)
+            raise
+        return version
+
+    def begin_windows_operation(
+        self,
+        *,
+        operation_id: str,
+        idempotency_key: str,
+        action: str,
+        interface_guid: str,
+        target_profile: str | None,
+        previous_profile: str | None,
+    ) -> dict[str, Any]:
+        intent_hash = digest(
+            {
+                "action": action,
+                "interface_guid": interface_guid,
+                "target_profile": target_profile,
+            }
+        )
+        now = utc_now()
+        with self.connection() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            existing = connection.execute(
+                "SELECT * FROM windows_network_operations WHERE idempotency_key=?",
+                (idempotency_key,),
+            ).fetchone()
+            if existing:
+                if str(existing["intent_hash"]) != intent_hash:
+                    connection.rollback()
+                    raise DuplicateConflictError(
+                        "Windows network idempotency key was reused for another intent"
+                    )
+                connection.commit()
+                return dict(existing)
+            connection.execute(
+                """INSERT INTO windows_network_operations(
+                operation_id,idempotency_key,intent_hash,action,interface_guid,target_profile,
+                previous_profile,state,started_at,updated_at)
+                VALUES(?,?,?,?,?,?,?,'intent_recorded',?,?)""",
+                (
+                    operation_id,
+                    idempotency_key,
+                    intent_hash,
+                    action,
+                    interface_guid,
+                    target_profile,
+                    previous_profile,
+                    now,
+                    now,
+                ),
+            )
+            connection.commit()
+        return self.windows_operation(idempotency_key)
+
+    def windows_operation(self, idempotency_key: str) -> dict[str, Any]:
+        with self.connection() as connection:
+            row = connection.execute(
+                "SELECT * FROM windows_network_operations WHERE idempotency_key=?",
+                (idempotency_key,),
+            ).fetchone()
+            if row is None:
+                raise KeyError("Windows network operation is unavailable")
+            return dict(row)
+
+    def transition_windows_operation(
+        self,
+        idempotency_key: str,
+        *,
+        current: set[str],
+        target: str,
+        reconciliation_result: str | None = None,
+        last_error: str | None = None,
+    ) -> dict[str, Any]:
+        now = utc_now()
+        completed_at = (
+            now if target in {"completed", "failed", "cancelled", "rolled_back"} else None
+        )
+        allowed_states = {
+            "intent_recorded",
+            "running",
+            "completed",
+            "failed",
+            "cancelled",
+            "reconciling",
+            "rolled_back",
+        }
+        if not current or not current <= allowed_states:
+            raise ValueError("invalid Windows network current state set")
+        padded_states = [*sorted(current), *([""] * (7 - len(current)))]
+        with self.connection() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            cursor = connection.execute(
+                """UPDATE windows_network_operations SET
+                state=?,updated_at=?,completed_at=COALESCE(?,completed_at),
+                reconciliation_result=COALESCE(?,reconciliation_result),
+                last_error=COALESCE(?,last_error)
+                WHERE idempotency_key=? AND state IN (?,?,?,?,?,?,?)""",
+                [
+                    target,
+                    now,
+                    completed_at,
+                    reconciliation_result,
+                    last_error,
+                    idempotency_key,
+                    *padded_states,
+                ],
+            )
+            if cursor.rowcount != 1:
+                connection.rollback()
+                raise StateConflictError("Windows network operation transition conflict")
+            connection.commit()
+        return self.windows_operation(idempotency_key)
+
+    def incomplete_windows_operations(self) -> list[dict[str, Any]]:
+        with self.connection() as connection:
+            rows = connection.execute(
+                """SELECT * FROM windows_network_operations
+                WHERE state IN ('intent_recorded','running','reconciling')
+                ORDER BY started_at"""
+            ).fetchall()
+            return [dict(row) for row in rows]
+
+    def purge_identity(self) -> None:
+        with self.connection() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            connection.execute("DELETE FROM capability_manifests")
+            connection.execute("DELETE FROM runtime_state")
+            connection.execute("DELETE FROM agent_identity")
+            connection.commit()
 
     def identity(self) -> dict[str, Any] | None:
         with self.connection() as connection:
@@ -626,6 +800,7 @@ class SQLiteStore:
             "pending_uploads": "SELECT * FROM pending_uploads",
             "sync_state": "SELECT * FROM sync_state",
             "quarantine": "SELECT * FROM quarantine",
+            "windows_network_operations": "SELECT * FROM windows_network_operations",
         }
         if table not in queries:
             raise ValueError("unknown table")

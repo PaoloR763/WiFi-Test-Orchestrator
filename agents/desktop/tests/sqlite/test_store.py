@@ -51,6 +51,7 @@ def test_schema_inventory_pragmas_and_migration(store: SQLiteStore) -> None:
         "pending_uploads",
         "sync_state",
         "quarantine",
+        "windows_network_operations",
     }
     with store.connection() as connection:
         tables = {
@@ -62,6 +63,31 @@ def test_schema_inventory_pragmas_and_migration(store: SQLiteStore) -> None:
         assert connection.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
         assert connection.execute("PRAGMA synchronous").fetchone()[0] == 2
         assert connection.execute("PRAGMA application_id").fetchone()[0] == APPLICATION_ID
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 2
+
+
+def test_schema_1_is_backed_up_and_migrated_forward_to_schema_2(tmp_path: Path) -> None:
+    path = tmp_path / "agent.sqlite3"
+    store = SQLiteStore(path)
+    store.initialize()
+    with store.connection() as connection:
+        connection.execute("DROP TABLE windows_network_operations")
+        connection.execute("DELETE FROM schema_migrations WHERE version=2")
+        connection.execute("PRAGMA user_version=1")
+
+    store.initialize()
+    backup = path.with_suffix(path.suffix + ".pre-migrate.bak")
+    with store.connection() as connection:
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 2
+        assert (
+            connection.execute(
+                "SELECT count(*) FROM sqlite_master "
+                "WHERE type='table' AND name='windows_network_operations'"
+            ).fetchone()[0]
+            == 1
+        )
+    with store._connect(backup) as connection:
+        assert connection.execute("PRAGMA quick_check").fetchone()[0] == "ok"
         assert connection.execute("PRAGMA user_version").fetchone()[0] == 1
 
 

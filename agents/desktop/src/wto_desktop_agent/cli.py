@@ -24,6 +24,7 @@ from wto_desktop_agent.infrastructure.sqlite.store import SQLiteStore
 from wto_desktop_agent.logging import configure_logging
 from wto_desktop_agent.platforms.factory import create_platform_adapter
 from wto_desktop_agent.ports.platform import PlatformAdapter
+from wto_desktop_agent.ports.plugins import CancellationToken
 from wto_desktop_agent.ports.time import SystemClock, SystemRandomSource
 
 
@@ -52,13 +53,51 @@ def parser() -> argparse.ArgumentParser:
     doctor.add_argument("--json", action="store_true", dest="as_json")
     capabilities = commands.add_parser("capabilities")
     capabilities.add_argument("--json", action="store_true", dest="as_json")
+    commands.add_parser("inventory")
+    wifi = commands.add_parser("wifi")
+    wifi_commands = wifi.add_subparsers(dest="wifi_command", required=True)
+    profiles = wifi_commands.add_parser("profiles")
+    profiles.add_argument("--interface-guid", required=True)
+    profiles.add_argument("--confirm", action="store_true")
+    connect = wifi_commands.add_parser("connect")
+    connect.add_argument("--interface-guid", required=True)
+    connect.add_argument("--profile", required=True)
+    connect.add_argument("--idempotency-key", required=True)
+    connect.add_argument("--confirm", action="store_true")
+    disconnect = wifi_commands.add_parser("disconnect")
+    disconnect.add_argument("--interface-guid", required=True)
+    disconnect.add_argument("--idempotency-key", required=True)
+    disconnect.add_argument("--confirm", action="store_true")
+    scan = wifi_commands.add_parser("scan")
+    scan.add_argument("--interface-guid", required=True)
+    scan.add_argument("--idempotency-key", required=True)
+    scan.add_argument("--confirm", action="store_true")
+    service = commands.add_parser("service")
+    service_commands = service.add_subparsers(dest="service_command", required=True)
+    service_commands.add_parser("run")
+    install = service_commands.add_parser("install")
+    install.add_argument("--executable", type=Path, default=Path(sys.executable))
+    for action in ("uninstall", "start", "stop", "pause", "resume", "status"):
+        service_commands.add_parser(action)
+    purge = service_commands.add_parser("purge-identity")
+    purge.add_argument("--confirm", action="store_true")
+    service_enroll = service_commands.add_parser("enroll")
+    service_enroll.add_argument("--display-name", required=True)
+    service_enroll.add_argument("--token-stdin", action="store_true")
+    maintenance = commands.add_parser("maintenance")
+    maintenance_commands = maintenance.add_subparsers(dest="maintenance_command", required=True)
+    backup = maintenance_commands.add_parser("backup")
+    backup.add_argument("--destination", type=Path, required=True)
+    restore = maintenance_commands.add_parser("restore")
+    restore.add_argument("--source", type=Path, required=True)
+    restore.add_argument("--confirm", action="store_true")
     return result
 
 
 def _token(args: argparse.Namespace) -> str:
     if args.token_stdin:
         value = sys.stdin.readline().strip()
-    elif args.token_env:
+    elif getattr(args, "token_env", None):
         value = os.environ.get(str(args.token_env), "").strip()
     else:
         value = getpass.getpass("Enrollment bootstrap value > ").strip()
@@ -71,11 +110,15 @@ def _components(
     config_path: Path,
 ) -> tuple[AgentSettings, PlatformAdapter, SQLiteStore, HttpAgentTransport, IdentityManager]:
     preliminary = load_settings(config_path)
-    platform = create_platform_adapter(in_memory=preliminary.allow_in_memory_secret_store)
     settings = preliminary
     settings.state_dir.mkdir(parents=True, exist_ok=True)
     settings.effective_artifacts_dir.mkdir(parents=True, exist_ok=True)
     store = SQLiteStore(settings.database_path)
+    platform = create_platform_adapter(
+        in_memory=preliminary.allow_in_memory_secret_store,
+        settings=settings,
+        store=store,
+    )
     transport = HttpAgentTransport(
         settings.server_url,
         timeout_seconds=settings.request_timeout_seconds,
@@ -92,10 +135,35 @@ def _components(
 
 
 async def _run(args: argparse.Namespace) -> int:
+    if args.command == "service" and args.service_command == "run":
+        from wto_desktop_agent.platforms.windows.service_host import (
+            run_service_dispatcher,
+        )
+
+        run_service_dispatcher(args.config)
+        return 0
+    if args.command == "maintenance":
+        settings = load_settings(args.config)
+        store = SQLiteStore(settings.database_path)
+        if args.maintenance_command == "backup":
+            store.initialize()
+            destination = args.destination.resolve()
+            store.create_verified_backup(destination)
+            print(json.dumps({"status": "verified", "destination": str(destination)}))
+            return 0
+        if not args.confirm:
+            raise PermissionError("SQLite restore requires explicit confirmation")
+        version = store.restore_verified_backup(args.source)
+        print(json.dumps({"status": "restored", "schema_version": version}))
+        return 0
     settings, platform, store, transport, identity = _components(args.config)
     configure_logging(settings.log_level)
     try:
         if args.command == "enroll":
+            if platform.platform_id == "windows":
+                raise PermissionError(
+                    "Windows enrollment must use the service-owned administrative named pipe"
+                )
             store.initialize()
             token = _token(args)
             try:
@@ -124,6 +192,82 @@ async def _run(args: argparse.Namespace) -> int:
                 for check in checks:
                     print(f"{check.status:8} {check.name}: {check.detail}")
             return 1 if any(check.status == "BLOCKED" for check in checks) else 0
+        if args.command == "inventory":
+            snapshot = await platform.wifi_collector.collect_inventory()
+            print(snapshot.model_dump_json())
+            return 0
+        if args.command == "wifi":
+            store.initialize()
+            if args.wifi_command == "profiles":
+                profiles = platform.network_controller.list_profiles(
+                    args.interface_guid, confirmed=bool(args.confirm)
+                )
+                print(json.dumps({"profiles": profiles}, ensure_ascii=False, sort_keys=True))
+                return 0
+            common = {
+                "interface_guid": args.interface_guid,
+                "idempotency_key": args.idempotency_key,
+                "confirmed": bool(args.confirm),
+                "cancellation": CancellationToken(),
+            }
+            if args.wifi_command == "connect":
+                connect_result = await platform.network_controller.connect(
+                    **common,
+                    profile_name=args.profile,
+                    timeout_seconds=settings.request_timeout_seconds,
+                )
+                print(json.dumps(connect_result, sort_keys=True))
+                return 0
+            if args.wifi_command == "disconnect":
+                disconnect_result = await platform.network_controller.disconnect(
+                    **common,
+                    timeout_seconds=settings.request_timeout_seconds,
+                )
+                print(json.dumps(disconnect_result, sort_keys=True))
+                return 0
+            if args.wifi_command == "scan":
+                scan_result = await platform.network_controller.request_scan(**common)
+                print(scan_result.model_dump_json())
+                return 0
+        if args.command == "service":
+            if args.service_command == "enroll":
+                if platform.platform_id != "windows":
+                    raise RuntimeError("service enrollment IPC is Windows-only")
+                from wto_desktop_agent.platforms.windows.enrollment_ipc import (
+                    EnrollmentIpcRequest,
+                    send_enrollment_request,
+                )
+
+                token = _token(args)
+                try:
+                    response = await asyncio.to_thread(
+                        send_enrollment_request,
+                        EnrollmentIpcRequest(
+                            schema_version="1.0.0",
+                            operation="enroll",
+                            display_name=args.display_name,
+                            enrollment_token=token,
+                        ),
+                    )
+                finally:
+                    del token
+                print(response.model_dump_json(exclude_none=True))
+                return 0 if response.status == "enrolled" else 1
+            if args.service_command == "install":
+                platform.service_manager.install(args.executable, args.config)
+                return 0
+            if args.service_command == "uninstall":
+                platform.service_manager.uninstall()
+                return 0
+            if args.service_command == "purge-identity":
+                platform.service_manager.purge_identity(confirmed=bool(args.confirm))
+                return 0
+            if args.service_command == "status":
+                print(json.dumps({"status": platform.service_manager.status()}))
+                return 0
+            if args.service_command in {"start", "stop", "pause", "resume"}:
+                platform.service_manager.control(args.service_command)
+                return 0
         registry = CapabilityRegistry(platform)
         if args.command == "capabilities":
             entries = registry.entries()

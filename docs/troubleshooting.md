@@ -12,6 +12,22 @@ Una task local hallada en `interrupted` no se redispatcha: el claim durable pudo
 preceder por milisegundos a la invocación del plugin. Consulte la guía de
 recuperación de Fase 05 antes de cualquier intervención manual.
 
+## Adapter Windows
+
+`windows_wifi_privacy=BLOCKED` indica que Windows denegó acceso de
+Location/Privacy. Habilite la configuración para la cuenta del servicio; el
+proceso en Session 0 no muestra UI ni intenta evadirla con PowerShell o netsh.
+El enrollment administrativo se envía al named pipe del servicio y el token
+nunca debe pasarse en argumentos, TOML, Registry ni archivos.
+
+Los errores `Production InstallRoot override is not permitted`, `TestMode requires an explicit
+WorkRoot` o `cannot contain reparse points` son bloqueos deliberados de packaging. En producción no
+se corrigen cambiando los roots: deben usarse las rutas canónicas de Program Files y ProgramData.
+En pruebas, cree un WorkRoot temporal nuevo y ubique dentro dos subdirectorios distintos para
+InstallRoot y DataRoot; no reutilice junctions, symlinks ni un backup externo a `DataRoot\state`.
+
+Consulte [`docs/phase06/troubleshooting.md`](phase06/troubleshooting.md).
+
 ## El puerto 8080 está ocupado
 
 Defina otro puerto sólo para el reverse proxy:
