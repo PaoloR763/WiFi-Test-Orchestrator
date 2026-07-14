@@ -123,6 +123,9 @@ INVENTORY_PROVIDERS = (
     "Get-DnsClientServerAddress",
 )
 
+PRODUCTION_PROVIDER_STARTUP_TIMEOUT_MILLISECONDS = 5000
+READY_FIRST_HANDSHAKE_TIMEOUT_MILLISECONDS = 20000
+
 MOCK_PROVIDER_FUNCTIONS = r"""
 function Get-CimInstance {
     param($ClassName, $Property, $OperationTimeoutSec, $ErrorAction)
@@ -307,6 +310,8 @@ def _inventory_script_with_provider_shim(
     selected_inventory_script: Path,
     provider_shim: Path,
     log_directory: Path,
+    *,
+    ready_first_provider: str | None = None,
 ) -> Path:
     from wto_desktop_agent.platforms.windows.powershell import inventory_script_path
 
@@ -318,6 +323,8 @@ def _inventory_script_with_provider_shim(
     resolved_log_directory = log_directory.resolve(strict=True)
     assert resolved_shim.is_relative_to(tmp_root)
     assert resolved_log_directory.is_relative_to(tmp_root)
+    if ready_first_provider is not None:
+        _validate_test_providers((ready_first_provider,))
 
     source = selected_script.read_text(encoding="utf-8")
     worker_template_anchor = "    $workerTemplate = @'\n"
@@ -353,14 +360,46 @@ def _inventory_script_with_provider_shim(
         1,
     )
 
+    ready_first_handshake = ""
+    if ready_first_provider is not None:
+        ready_first_handshake = (
+            r"""    if (
+        '__WTO_TEST_PROVIDER_NAME__' -eq '__WTO_READY_FIRST_PROVIDER__'
+    ) {
+        $pendingMarkerPath = Join-Path '__WTO_LOG_DIRECTORY__' (
+            '__WTO_TEST_PROVIDER_NAME__.marker-pending-before-ready'
+        )
+        $pendingMarkerDeadline = [DateTime]::UtcNow.AddMilliseconds(
+            __WTO_READY_FIRST_HANDSHAKE_TIMEOUT_MILLISECONDS__
+        )
+        while (
+            -not (Test-Path -LiteralPath $pendingMarkerPath) -and
+            [DateTime]::UtcNow -lt $pendingMarkerDeadline
+        ) {
+            [Threading.Thread]::Sleep(10)
+        }
+    }
+""".replace(
+                "__WTO_READY_FIRST_PROVIDER__", ready_first_provider.replace("'", "''")
+            )
+            .replace("__WTO_LOG_DIRECTORY__", _powershell_literal(resolved_log_directory))
+            .replace(
+                "__WTO_READY_FIRST_HANDSHAKE_TIMEOUT_MILLISECONDS__",
+                str(READY_FIRST_HANDSHAKE_TIMEOUT_MILLISECONDS),
+            )
+        )
+
     marker_instrumentation = r"""    [Console]::Out.Flush()
     [IO.File]::WriteAllText(
         (Join-Path '__WTO_LOG_DIRECTORY__' ('__WTO_TEST_PROVIDER_NAME__' + '.worker-marker')),
         '1',
         (New-Object Text.UTF8Encoding($false))
     )
+__WTO_READY_FIRST_HANDSHAKE__
     $null = $readyEvent.Set()
 """.replace(
+        "__WTO_READY_FIRST_HANDSHAKE__", ready_first_handshake.rstrip()
+    ).replace(
         "__WTO_LOG_DIRECTORY__", _powershell_literal(resolved_log_directory)
     )
     source = source.replace(marker_anchor, marker_instrumentation, 1)
@@ -485,6 +524,7 @@ def _run_mocked_inventory(
     failed_providers: tuple[str, ...] = (),
     inventory_script: Path | None = None,
     outer_timeout_milliseconds: int = 30000,
+    ready_first_provider: str | None = None,
 ) -> tuple[subprocess.CompletedProcess[bytes], float, dict[str, int], dict[str, int]]:
     from wto_desktop_agent.platforms.windows.powershell import inventory_script_path
 
@@ -505,6 +545,7 @@ def _run_mocked_inventory(
         selected_inventory_script,
         provider_shim,
         log_directory,
+        ready_first_provider=ready_first_provider,
     )
     provider_literals = "\n".join(f"    '{provider}'" for provider in INVENTORY_PROVIDERS)
     harness = f"""
@@ -636,10 +677,10 @@ def _inventory_script_with_worker_preamble(
     )
     {behavior}
 '@
-        $readyStatement = '    $null = $readyEvent.Set()'
+        $markerStatement = '    [Console]::Out.WriteLine($marker)'
         $workerTemplate = $workerTemplate.Replace(
-            $readyStatement,
-            $testPreamble + [Environment]::NewLine + $readyStatement
+            $markerStatement,
+            $testPreamble + [Environment]::NewLine + $markerStatement
         )
     }}
 """
@@ -665,24 +706,126 @@ def _inventory_script_with_setup_delay(tmp_path: Path, delay_milliseconds: int) 
     return target
 
 
-def _inventory_script_with_ready_without_marker(tmp_path: Path, provider: str) -> Path:
+def _inventory_script_with_delayed_marker_consumption(
+    tmp_path: Path,
+    provider: str,
+    *,
+    delay_milliseconds: int,
+) -> Path:
+    from wto_desktop_agent.platforms.windows.powershell import inventory_script_path
+
+    assert 0 < delay_milliseconds < PRODUCTION_PROVIDER_STARTUP_TIMEOUT_MILLISECONDS
+    source = inventory_script_path().read_text(encoding="utf-8")
+    startup_assignment = (
+        "$providerStartupTimeoutMilliseconds = "
+        f"{PRODUCTION_PROVIDER_STARTUP_TIMEOUT_MILLISECONDS}"
+    )
+    assert source.count(startup_assignment) == 1
+    escaped_provider = provider.replace("'", "''")
+    marker_guard = (
+        "    if ($State.MarkerObserved -or $null -eq $State.MarkerTask -or "
+        "-not $State.MarkerTask.IsCompleted) {\n"
+        "        return\n"
+        "    }\n"
+    )
+    assert source.count(marker_guard) == 1
+    delayed_consumption = r"""    if ($State.Definition.Name -eq '__WTO_PROVIDER__') {
+        if (-not $State.ReadyObserved) {
+            $pendingMarkerPath = Join-Path $env:WTO_TEST_INVENTORY_LOG_DIRECTORY (
+                '__WTO_PROVIDER__.marker-pending-before-ready'
+            )
+            if (-not (Test-Path -LiteralPath $pendingMarkerPath)) {
+                [IO.File]::WriteAllText(
+                    $pendingMarkerPath,
+                    [string][int64]$internalStopwatch.Elapsed.TotalMilliseconds,
+                    (New-Object Text.UTF8Encoding($false))
+                )
+            }
+            return
+        }
+        $delayPath = Join-Path $env:WTO_TEST_INVENTORY_LOG_DIRECTORY (
+            '__WTO_PROVIDER__.marker-consumption-delayed'
+        )
+        if (-not (Test-Path -LiteralPath $delayPath)) {
+            [IO.File]::WriteAllText(
+                $delayPath,
+                [string][int64]$internalStopwatch.Elapsed.TotalMilliseconds,
+                (New-Object Text.UTF8Encoding($false))
+            )
+        }
+        $delayStartedMilliseconds = [int64](Get-Content -Raw -LiteralPath $delayPath)
+        $nowMilliseconds = [int64]$internalStopwatch.Elapsed.TotalMilliseconds
+        if ($nowMilliseconds - $delayStartedMilliseconds -lt __WTO_DELAY_MILLISECONDS__) {
+            return
+        }
+    }
+""".replace(
+        "__WTO_PROVIDER__", escaped_provider
+    ).replace(
+        "__WTO_DELAY_MILLISECONDS__", str(delay_milliseconds)
+    )
+    modified = source.replace(marker_guard, marker_guard + delayed_consumption, 1)
+    target = tmp_path / "network_inventory.delayed-marker-consumption.ps1"
+    target.write_bytes(modified.replace("\r\n", "\n").replace("\n", "\r\n").encode("utf-8"))
+    return target
+
+
+def _inventory_script_with_ready_without_marker(
+    tmp_path: Path,
+    provider: str,
+) -> Path:
     from wto_desktop_agent.platforms.windows.powershell import inventory_script_path
 
     source = inventory_script_path().read_text(encoding="utf-8")
+    startup_assignment = (
+        "$providerStartupTimeoutMilliseconds = "
+        f"{PRODUCTION_PROVIDER_STARTUP_TIMEOUT_MILLISECONDS}"
+    )
+    assert source.count(startup_assignment) == 1
     fixed_query_line = "    $fixedQuery = [string]$Definition.Query\n"
     assert fixed_query_line in source
+    marker_result_line = "        $marker = [string]$State.MarkerTask.GetAwaiter().GetResult()\n"
+    assert source.count(marker_result_line) == 1
     escaped_provider = provider.replace("'", "''")
     injection = f"""
     if ($Definition.Name -eq '{escaped_provider}') {{
         $markerStatement = '    [Console]::Out.WriteLine($marker)'
         $workerTemplate = $workerTemplate.Replace(
             $markerStatement,
-            '    $null = $readyEvent.Set()' + [Environment]::NewLine +
+            '    [IO.File]::WriteAllText(' + [Environment]::NewLine +
+                '        (Join-Path $env:WTO_TEST_INVENTORY_LOG_DIRECTORY ' +
+                "'{escaped_provider}.pid')," +
+                [Environment]::NewLine +
+                '        [string]$PID,' + [Environment]::NewLine +
+                '        (New-Object Text.UTF8Encoding($false))' + [Environment]::NewLine +
+                '    )' + [Environment]::NewLine +
+                '    $null = $readyEvent.Set()' + [Environment]::NewLine +
+                '    [IO.File]::WriteAllText(' + [Environment]::NewLine +
+                '        (Join-Path $env:WTO_TEST_INVENTORY_LOG_DIRECTORY ' +
+                "'{escaped_provider}.ready-signalled')," +
+                [Environment]::NewLine +
+                "        '1'," + [Environment]::NewLine +
+                '        (New-Object Text.UTF8Encoding($false))' + [Environment]::NewLine +
+                '    )' + [Environment]::NewLine +
                 '    [Threading.Thread]::Sleep(60000)'
         )
     }}
 """
     modified = source.replace(fixed_query_line, injection + fixed_query_line, 1)
+    marker_consumed_signal = f"""{marker_result_line}        if (
+            $State.Definition.Name -eq '{escaped_provider}' -and
+            $marker.Length -gt 0
+        ) {{
+            [IO.File]::WriteAllText(
+                (Join-Path $env:WTO_TEST_INVENTORY_LOG_DIRECTORY (
+                    '{escaped_provider}.marker-consumed'
+                )),
+                '1',
+                (New-Object Text.UTF8Encoding($false))
+            )
+        }}
+"""
+    modified = modified.replace(marker_result_line, marker_consumed_signal, 1)
     target = tmp_path / "network_inventory.ready-without-marker.ps1"
     target.write_bytes(modified.replace("\r\n", "\n").replace("\n", "\r\n").encode("utf-8"))
     return target
@@ -1288,6 +1431,49 @@ def test_powershell_51_job_cleanup_failure_remains_visible_and_reaps_worker_tree
     _assert_provider_processes_stopped(provider_pids)
 
 
+def test_powershell_51_ready_waits_for_delayed_marker_consumption(
+    tmp_path: Path,
+) -> None:
+    from wto_desktop_agent.platforms.windows.powershell import parse_powershell_inventory
+
+    provider = "Win32_PnPSignedDriver"
+    for iteration in range(3):
+        iteration_path = tmp_path / f"stress-{iteration}"
+        iteration_path.mkdir()
+        modified_script = _inventory_script_with_delayed_marker_consumption(
+            iteration_path,
+            provider,
+            delay_milliseconds=500,
+        )
+        completed, _, provider_pids, query_counts = _run_mocked_inventory(
+            iteration_path,
+            inventory_script=modified_script,
+            ready_first_provider=provider,
+        )
+
+        assert (
+            completed.returncode == 0
+        ), f"stress iteration {iteration}\n" + completed.stderr.decode("utf-8", errors="replace")
+        log_directory = iteration_path / "provider-logs"
+        pending_path = log_directory / f"{provider}.marker-pending-before-ready"
+        delayed_path = log_directory / f"{provider}.marker-consumption-delayed"
+        assert pending_path.is_file()
+        assert delayed_path.is_file()
+        pending_milliseconds = int(pending_path.read_text(encoding="utf-8"))
+        delayed_milliseconds = int(delayed_path.read_text(encoding="utf-8"))
+        assert pending_milliseconds <= delayed_milliseconds
+        assert query_counts[provider] == 1
+        _assert_inventory_providers_invoked_once(iteration_path, completed, query_counts)
+        diagnostics = completed.stderr.decode("utf-8", errors="strict")
+        assert f"provider={provider} status=completed" in diagnostics
+        assert (
+            "wto_test_cleanup jobs_remaining=0 processes_remaining=0 workers_remaining=0"
+            in diagnostics
+        )
+        parse_powershell_inventory(completed.stdout)
+        _assert_provider_processes_stopped(provider_pids)
+
+
 @pytest.mark.parametrize(
     ("provider", "behavior"),
     [
@@ -1328,20 +1514,24 @@ def test_powershell_51_startup_without_marker_is_terminated_and_removed(
     _assert_provider_processes_stopped(provider_pids)
 
 
-def test_powershell_51_signalled_ready_without_marker_is_terminated_immediately(
+def test_powershell_51_signalled_ready_without_marker_waits_until_startup_deadline(
     tmp_path: Path,
 ) -> None:
     from wto_desktop_agent.platforms.windows.powershell import parse_powershell_inventory
 
     provider = "Get-NetRoute"
     modified_script = _inventory_script_with_ready_without_marker(tmp_path, provider)
-    completed, elapsed, provider_pids, query_counts = _run_mocked_inventory(
+    completed, _, provider_pids, query_counts = _run_mocked_inventory(
         tmp_path,
         inventory_script=modified_script,
     )
 
     assert completed.returncode == 0, completed.stderr.decode("utf-8", errors="replace")
-    assert elapsed < 15.0
+    log_directory = tmp_path / "provider-logs"
+    assert (log_directory / f"{provider}.ready-signalled").read_text(encoding="utf-8") == "1"
+    assert not (log_directory / f"{provider}.worker-marker").exists()
+    assert not (log_directory / f"{provider}.marker-consumed").exists()
+    assert provider in provider_pids
     assert query_counts[provider] == 0
     diagnostics = completed.stderr.decode("utf-8", errors="strict")
     provider_line = next(
@@ -1350,15 +1540,19 @@ def test_powershell_51_signalled_ready_without_marker_is_terminated_immediately(
     assert "status=timed_out" in provider_line
     assert "termination=launch_handle" in provider_line
     assert "worker_state=MarkerMissing" in provider_line
-    fields = {
-        key: value
-        for key, value in (
-            token.split("=", maxsplit=1) for token in provider_line.split() if "=" in token
-        )
-    }
-    assert int(fields["elapsed_ms"]) <= 750
+    test_provider_line = next(
+        line
+        for line in diagnostics.splitlines()
+        if line.startswith(f"wto_test_provider provider={provider} ")
+    )
+    assert "marker_published=False" in test_provider_line
+    assert "barrier_crossed=False" in test_provider_line
+    assert "shim_loaded=False" in test_provider_line
+    assert "count=0" in test_provider_line
     assert "wto_inventory cleanup jobs_remaining=0 processes_remaining=0" in diagnostics
-    assert "wto_test_cleanup jobs_remaining=0 processes_remaining=0" in diagnostics
+    assert (
+        "wto_test_cleanup jobs_remaining=0 processes_remaining=0 workers_remaining=0" in diagnostics
+    )
     parse_powershell_inventory(completed.stdout)
     _assert_provider_processes_stopped(provider_pids)
 

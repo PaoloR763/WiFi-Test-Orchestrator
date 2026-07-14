@@ -23,7 +23,10 @@ Versioning cuando existan releases publicadas.
   `ProcessContext` por token/identidad de objeto: el PID es sólo metadata.
   El deadline de solicitud comienza antes del spawn y el cleanup tiene 5
   segundos de gracia, con los últimos 100 ms reservados para force-close y
-  drenaje. Los diagnósticos continúan exclusivamente por stderr.
+  drenaje. Ready y marker ahora se observan como condiciones independientes:
+  ready adelantado espera el consumo y validación del marker hasta el deadline
+  de startup, sin recortar ni adelantar los budgets de providers. Los
+  diagnósticos continúan exclusivamente por stderr.
 - Agregado el adapter Windows de referencia con Native Wi-Fi mediante `ctypes`,
   telemetría normalizada por campo, PowerShell JSON y fallback netsh localizado.
 - Agregados control Wi-Fi exclusivamente local y allowlisted, journal SQLite

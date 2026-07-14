@@ -20,10 +20,14 @@
   `TerminateProcess` sin reabrir el PID y cerró el Job Object individual para
   incluir descendientes. `handle_termination_failed` requiere investigación y
   nunca habilita un fallback que vuelva a resolver el PID.
-- Un timeout con `termination=launch_handle` durante el startup de 5 segundos
-  significa que el worker explícito no publicó su marker: su `StartEvent` no fue
-  liberado y el provider nunca entró. Los providers que sí publicaron marker
-  comparten un único timestamp de inicio al liberarse juntos sus gates.
+- Un timeout con `worker_state=MarkerMissing` y `termination=launch_handle`
+  durante el startup de 5 segundos significa que el marker no llegó a ser
+  leído, parseado y validado. `ready` puede haberse observado antes; eso no
+  libera el `StartEvent` ni acorta el deadline. `worker_state=ReadyMissing`
+  significa que el marker sí fue validado pero no se observó ready. En ambos
+  casos el provider nunca entra y el worker se termina mediante el handle
+  estable. Los providers admitidos comparten un único timestamp de inicio al
+  liberarse juntos sus gates.
 - Verificar la línea
   `wto_inventory cleanup jobs_remaining=0 processes_remaining=0`. Un valor
   distinto de cero indica una falla del cleanup y no debe ignorarse.

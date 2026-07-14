@@ -17,6 +17,9 @@ job repository or `StopAsync`. Each worker writes a PID and creation-time marker
 signals ready and waits on a separate start barrier. The coordinator validates
 the marker through the stable handle retained from that concrete process,
 assigns its tree to a provider-specific Job Object and only then releases it.
+Ready observation and marker parsing/validation are independent conditions; if
+ready is observed first, the coordinator keeps waiting for the marker through
+the 5-second startup deadline without opening the barrier.
 PID is diagnostic metadata and is never reopened with termination rights.
 
 The per-provider budgets (drivers/adapters/statistics/IP configuration/
@@ -27,8 +30,9 @@ timestamp. Before release, a guard verifies that the largest budget, the shared
 within the 26-second coordinator planning window; a further 1-second margin is kept
 below the external watchdog. If they do not, no provider is released and
 inventory fails soft. Startup has a 5-second
-bound; a missing marker is terminated without entering its
-provider. Stdout/stderr reads are asynchronous, observed and disposed during
+bound independent of the provider budgets; a missing marker is terminated by
+the retained stable handle without entering its provider. Stdout/stderr reads
+are asynchronous, observed and disposed during
 cleanup. The external 30-second `windows_inventory_timeout_seconds` remains the
 hard safety barrier. Diagnostics are emitted exclusively to stderr; stdout
 remains one strict JSON document.

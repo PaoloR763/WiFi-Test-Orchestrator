@@ -158,9 +158,16 @@ def test_inventory_script_queries_each_global_source_once_before_assembly() -> N
             "function Update-ProviderMarker"
         )
     ]
+    assert "$markerDeliveryGraceMilliseconds" not in source
+    assert "ReadySignaledMilliseconds" not in source
+    assert "$State.ReadyObserved = $true" in ready_function
     assert ready_function.index("Update-ProviderMarker $State") < ready_function.index(
         "$State.Status = 'ready'"
     )
+    assert "$State.MarkerObserved -and $State.IdentityStatus -ne 'validated'" in ready_function
+    assert "$State.ReadyObserved -and $State.IdentityStatus -eq 'validated'" in ready_function
+    assert "ReadyObserved = $false" in source
+    assert "'ReadyMissing'" in source
     assert "Stop-Process" not in source
     assert "GetDirectChildProcessIds" not in source
     assert "Open($State.WorkerProcessId)" not in source

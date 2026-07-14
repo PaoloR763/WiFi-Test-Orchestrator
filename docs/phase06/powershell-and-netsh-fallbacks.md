@@ -26,8 +26,12 @@ Cada worker escribe como primera línea `PID|creationFileTime`, vacía stdout,
 señala su `ReadyEvent` y espera un `StartEvent` separado. El coordinador abre el
 worker como un `System.Diagnostics.Process`, duplica y conserva su handle,
 valida por ese mismo handle PID, creation time e imagen, y crea el Job Object
-del provider antes de liberar el start. Un worker sin marker dentro de los 5
-segundos de startup nunca entra al provider y se termina inmediatamente.
+del provider antes de liberar el start. `ReadyEvent` observado y marker leído,
+parseado y validado son dos condiciones independientes: ninguna por sí sola
+libera la barrera. Si ready llega primero, el coordinador continúa consumiendo
+el pipe hasta el deadline de startup de 5 segundos. Un worker cuyo marker no fue
+validado al vencer ese deadline nunca entra al provider y se termina mediante el
+handle estable retenido.
 
 PID es sólo metadata. No existe reapertura por PID con `PROCESS_TERMINATE`; la
 terminación usa exclusivamente el handle estable retenido desde el worker
@@ -38,6 +42,9 @@ vencer un budget, `TerminateProcess` actúa sobre el handle original y
 
 Todos los providers liberados comparten un timestamp de inicio, por lo que sus
 budgets de 8/8/5/10/5/5/5 segundos se conservan íntegros y corren en paralelo.
+El deadline de startup es independiente de esos budgets: los budgets comienzan
+únicamente después de que todos los workers elegibles cumplieron ambas
+condiciones y se liberaron juntos sus `StartEvent`.
 Antes del release, un guard comprueba que el máximo de 10 segundos, los 3
 segundos de reap y el segundo final de close-and-wait caben en la fase de
 providers de 20 segundos. Esos límites más una reserva de 1 segundo para

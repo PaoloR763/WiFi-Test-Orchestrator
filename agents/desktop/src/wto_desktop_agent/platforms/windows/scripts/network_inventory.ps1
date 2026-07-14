@@ -36,9 +36,10 @@ function Add-IndexedValue {
     }
 }
 
-# Each fixed provider runs in its own explicit child PowerShell process. A ready
-# event proves that the child reached its barrier; the query cannot run until the
-# coordinator releases the separate start event after native Job containment.
+# Each fixed provider runs in its own explicit child PowerShell process. The ready
+# event and the validated process marker are independent startup conditions; the
+# query cannot run until both are observed and the coordinator releases the
+# separate start event after native Job containment.
 # Setup is measured separately from the 20 second provider phase. The coordinator
 # uses a 26 second planning window beneath the hard external 30 second process
 # watchdog and reserves the maximum provider budget, cleanup, and assembly.
@@ -107,7 +108,6 @@ $diagnosticsEnabled = $env:WTO_INVENTORY_DIAGNOSTICS -eq '1'
 $coordinatorTimeoutMilliseconds = 26000
 $providerPhaseTimeoutMilliseconds = 20000
 $providerStartupTimeoutMilliseconds = 5000
-$markerDeliveryGraceMilliseconds = 100
 $providerCleanupTimeoutMilliseconds = 3000
 $providerFinalCleanupTimeoutMilliseconds = 1000
 $inventoryAssemblyReserveMilliseconds = 1000
@@ -883,44 +883,40 @@ function Update-ProviderReadyState {
 
     if ($State.Status -ne 'starting') { return }
     try {
-        $readySignaled = $State.ReadyEvent.WaitOne(0)
-        if ($readySignaled) {
-            $nowMilliseconds = [int64]$internalStopwatch.Elapsed.TotalMilliseconds
-            if ($null -eq $State.ReadySignaledMilliseconds) {
-                $State.ReadySignaledMilliseconds = $nowMilliseconds
-            }
-            if ($State.MarkerTask.IsCompleted) {
-                Update-ProviderMarker $State
-                if ($State.IdentityStatus -eq 'validated' -and -not $State.WorkerHandle.IsExited) {
-                    $State.Ready = $true
-                    $State.Status = 'ready'
-                } else {
-                    $State.Status = 'failed'
-                    $State.WorkerStateAtFinish = if ($State.IdentityStatus -eq 'validated') {
-                        'ExitedDuringValidation'
-                    } else {
-                        'MarkerRejected'
-                    }
-                    $State.FinishedMilliseconds = $nowMilliseconds
-                    Request-ProviderTermination $State
-                }
-            } elseif (
-                $nowMilliseconds - $State.ReadySignaledMilliseconds -ge
-                    $markerDeliveryGraceMilliseconds
-            ) {
-                # The fixed wrapper flushes its marker before signalling Ready.
-                # A signalled Ready with no complete line is therefore invalid;
-                # terminate promptly rather than consuming the 5-second startup budget.
-                $State.Status = 'timed_out'
-                $State.WorkerStateAtFinish = 'MarkerMissing'
+        $nowMilliseconds = [int64]$internalStopwatch.Elapsed.TotalMilliseconds
+        if (-not $State.ReadyObserved -and $State.ReadyEvent.WaitOne(0)) {
+            $State.ReadyObserved = $true
+        }
+        if (
+            -not $State.MarkerObserved -and
+            $null -ne $State.MarkerTask -and
+            $State.MarkerTask.IsCompleted
+        ) {
+            Update-ProviderMarker $State
+        }
+        if ($State.MarkerObserved -and $State.IdentityStatus -ne 'validated') {
+            $State.Status = 'failed'
+            $State.WorkerStateAtFinish = 'MarkerRejected'
+            $State.FinishedMilliseconds = $nowMilliseconds
+            Request-ProviderTermination $State
+        } elseif ($State.ReadyObserved -and $State.IdentityStatus -eq 'validated') {
+            if ($State.WorkerHandle.IsExited) {
+                $State.Status = 'failed'
+                $State.WorkerStateAtFinish = 'ExitedDuringValidation'
                 $State.FinishedMilliseconds = $nowMilliseconds
                 Request-ProviderTermination $State
+            } else {
+                $State.Ready = $true
+                $State.Status = 'ready'
             }
         } elseif ($State.WorkerHandle.IsExited) {
-            if ($State.MarkerTask.IsCompleted) { Update-ProviderMarker $State }
             $State.Status = 'failed'
-            $State.WorkerStateAtFinish = 'ExitedBeforeReady'
-            $State.FinishedMilliseconds = [int64]$internalStopwatch.Elapsed.TotalMilliseconds
+            $State.WorkerStateAtFinish = if ($State.ReadyObserved) {
+                'ExitedBeforeMarker'
+            } else {
+                'ExitedBeforeReady'
+            }
+            $State.FinishedMilliseconds = $nowMilliseconds
         }
     } catch {
         $State.Status = 'failed'
@@ -1277,7 +1273,7 @@ foreach ($definition in $providerDefinitions) {
             $null
         }
         Ready = $false
-        ReadySignaledMilliseconds = $null
+        ReadyObserved = $false
         Termination = $termination
         TerminationRequested = $termination -ne 'none'
         ProcessObjectTerminationRequested = $processObjectTerminationRequested
@@ -1331,7 +1327,13 @@ try {
         Update-ProviderReadyState $state
         if (-not $releaseBudgetAvailable -or -not $state.Ready) {
             $state.Status = 'timed_out'
-            $state.WorkerStateAtFinish = if ($state.Ready) { 'ReadyNotReleased' } else { 'MarkerMissing' }
+            $state.WorkerStateAtFinish = if ($state.Ready) {
+                'ReadyNotReleased'
+            } elseif ($state.IdentityStatus -ne 'validated') {
+                'MarkerMissing'
+            } else {
+                'ReadyMissing'
+            }
             $state.FinishedMilliseconds = $providersStartedMilliseconds
             Request-ProviderTermination $state
         } else {
