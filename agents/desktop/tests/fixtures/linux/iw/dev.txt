@@ -1,0 +1,7 @@
+phy#0
+	Interface wlan0
+		ifindex 3
+		wdev 0x1
+		addr 02:00:00:00:00:02
+		type managed
+		txpower 20.00 dBm

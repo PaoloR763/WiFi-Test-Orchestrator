@@ -42,6 +42,10 @@ $Current = Join-Path $InstallRoot 'versions\0.1.1\wto-agent.exe'
 if (-not (Test-Path -LiteralPath $Current -PathType Leaf)) { throw 'TestMode upgrade failed.' }
 
 $ConfigPath = Join-Path $DataRoot 'config\wto-agent.toml'
+# Doctor is intentionally read-only and must not bootstrap the SQLite/state
+# layout. Exercise a normal runtime command first, then verify diagnostics.
+& $Current --config $ConfigPath status | Out-Null
+if ($LASTEXITCODE -ne 0) { throw 'Frozen executable state initialization failed.' }
 & $Current --config $ConfigPath doctor --json | Out-Null
 if ($LASTEXITCODE -ne 0) { throw 'Frozen executable doctor failed.' }
 $Backup = Join-Path $DataRoot 'state\agent.sqlite3.test-backup'

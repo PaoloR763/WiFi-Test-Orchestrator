@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import copy
 import json
 from datetime import UTC
 from typing import Any, cast
@@ -7,7 +9,7 @@ from uuid import uuid4
 
 from wto_desktop_agent import __version__
 from wto_desktop_agent.infrastructure.contracts import contract_root, validate_contract
-from wto_desktop_agent.infrastructure.sqlite.store import SQLiteStore
+from wto_desktop_agent.infrastructure.sqlite.store import SQLiteStore, digest
 from wto_desktop_agent.ports.platform import PlatformAdapter
 from wto_desktop_agent.ports.time import Clock
 from wto_desktop_agent.ports.transport import AgentTransport
@@ -27,7 +29,11 @@ class CapabilityRegistry:
         if len(self.capability_ids) != 15:
             raise RuntimeError("capability catalog must contain exactly 15 IDs")
 
-    def _entry(self, capability_id: str) -> dict[str, object]:
+    def _entry(
+        self,
+        capability_id: str,
+        overrides: dict[str, dict[str, object]],
+    ) -> dict[str, object]:
         technical_status = "unknown"
         technical_reason: dict[str, str] | None = _reason("unknown")
         implementation = "not_implemented"
@@ -115,7 +121,7 @@ class CapabilityRegistry:
             },
             "limitations": {"status": limitation_status, "reason": limitation_reason},
         }
-        override = self.platform.capability_overrides().get(capability_id)
+        override = overrides.get(capability_id)
         if override:
             unknown = set(override) - {
                 "technical_support",
@@ -132,7 +138,17 @@ class CapabilityRegistry:
         return entry
 
     def entries(self) -> list[dict[str, object]]:
-        return [self._entry(capability_id) for capability_id in self.capability_ids]
+        overrides = copy.deepcopy(self.platform.capability_overrides())
+        return [self._entry(capability_id, overrides) for capability_id in self.capability_ids]
+
+    async def entries_async(self) -> list[dict[str, object]]:
+        method = getattr(self.platform, "capability_overrides_async", None)
+        if method is None:
+            raw = await asyncio.to_thread(self.platform.capability_overrides)
+        else:
+            raw = await method()
+        overrides = copy.deepcopy(raw)
+        return [self._entry(capability_id, overrides) for capability_id in self.capability_ids]
 
 
 class ManifestService:
@@ -150,23 +166,90 @@ class ManifestService:
         self.platform = platform
         self.clock = clock
 
+    @staticmethod
+    def _validated_manifest_payload(
+        row: dict[str, Any],
+        *,
+        expected_state: str,
+    ) -> dict[str, Any]:
+        try:
+            payload = cast(dict[str, Any], json.loads(str(row["payload"])))
+            row_sequence = int(row["sequence"])
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
+            raise RuntimeError("durable capability manifest row is invalid") from error
+        if (
+            row.get("state") != expected_state
+            or digest(payload) != row.get("payload_hash")
+            or payload.get("manifest_id") != row.get("manifest_id")
+            or payload.get("manifest_sequence") != row_sequence
+        ):
+            raise RuntimeError("durable capability manifest identity is invalid")
+        if expected_state == "confirmed" and (
+            not row.get("server_digest") or not row.get("confirmed_at")
+        ):
+            raise RuntimeError("confirmed capability manifest lacks server evidence")
+        validate_contract("capability-manifest.schema.json", payload)
+        return payload
+
+    def _static_manifest_is_compatible(
+        self,
+        payload: dict[str, Any],
+        identity: dict[str, Any],
+    ) -> bool:
+        validate_contract("capability-manifest.schema.json", payload)
+        return (
+            payload.get("schema_version") == "1.0.0"
+            and payload.get("agent_id") == str(identity["agent_id"])
+            and payload.get("agent_version") == __version__
+            and payload.get("platform") == self.platform.platform_id
+            and payload.get("platform_version") == self.platform.platform_version
+            and payload.get("protocol_version") == "1.0.0"
+            and payload.get("capability_catalog_version") == "1.0.0"
+        )
+
+    async def ensure_fast_start_published(self, credential: str) -> bool:
+        """Ensure a usable manifest without refreshing live platform probes.
+
+        Returns ``True`` when a live capability refresh is still required after
+        already-authorized queued/retried work has had a chance to complete.
+        Initial publication and static manifest incompatibilities retain the
+        normal fail-closed live publication path.
+        """
+
+        if self.store.pending_manifest():
+            await self.ensure_published(credential)
+        confirmed = self.store.confirmed_manifest()
+        identity = self.store.identity()
+        runtime = self.store.runtime_state()
+        if confirmed and identity and identity.get("agent_id") and runtime:
+            payload = self._validated_manifest_payload(confirmed, expected_state="confirmed")
+            if int(confirmed["sequence"]) == int(
+                runtime["manifest_acked_sequence"]
+            ) and self._static_manifest_is_compatible(payload, identity):
+                return True
+        await self.ensure_published(credential)
+        return False
+
     async def ensure_published(self, credential: str) -> dict[str, object]:
         pending = self.store.pending_manifest()
         if pending:
-            payload: dict[str, Any] = cast(dict[str, Any], json.loads(str(pending["payload"])))
+            payload = self._validated_manifest_payload(pending, expected_state="pending")
         else:
             identity = self.store.identity()
             runtime = self.store.runtime_state()
             if not identity or not identity.get("agent_id") or not runtime:
                 raise RuntimeError("identity and runtime are required before manifest publication")
+            capabilities = await self.registry.entries_async()
             confirmed = self.store.confirmed_manifest()
             if confirmed:
-                confirmed_payload = cast(dict[str, Any], json.loads(str(confirmed["payload"])))
+                confirmed_payload = self._validated_manifest_payload(
+                    confirmed,
+                    expected_state="confirmed",
+                )
                 if (
-                    confirmed_payload.get("agent_version") == __version__
-                    and confirmed_payload.get("platform") == self.platform.platform_id
-                    and confirmed_payload.get("platform_version") == self.platform.platform_version
-                    and confirmed_payload.get("capabilities") == self.registry.entries()
+                    int(confirmed["sequence"]) == int(runtime["manifest_acked_sequence"])
+                    and self._static_manifest_is_compatible(confirmed_payload, identity)
+                    and confirmed_payload.get("capabilities") == capabilities
                 ):
                     return confirmed_payload
             sequence = int(runtime["manifest_acked_sequence"]) + 1
@@ -181,7 +264,7 @@ class ManifestService:
                 "protocol_version": "1.0.0",
                 "capability_catalog_version": "1.0.0",
                 "generated_at": self.clock.now().astimezone(UTC).isoformat().replace("+00:00", "Z"),
-                "capabilities": self.registry.entries(),
+                "capabilities": capabilities,
             }
             validate_contract("capability-manifest.schema.json", payload)
             self.store.persist_manifest(str(payload["manifest_id"]), sequence, payload)

@@ -36,7 +36,7 @@ pytestmark = [
 
 def test_factory_creates_real_windows_adapter_without_linux_imports(tmp_path: Path) -> None:
     assert "secretstorage" not in sys.modules
-    assert not any("platforms.linux" in name for name in sys.modules)
+    modules_before_factory = set(sys.modules)
 
     import pywintypes
     import win32api
@@ -60,6 +60,7 @@ def test_factory_creates_real_windows_adapter_without_linux_imports(tmp_path: Pa
     store = SQLiteStore(tmp_path / "agent.sqlite3")
     store.initialize()
     adapter = create_platform_adapter(in_memory=False, settings=settings, store=store)
+    modules_loaded_by_factory = set(sys.modules) - modules_before_factory
 
     assert isinstance(adapter, WindowsPlatformAdapter)
     assert adapter.platform_id == "windows"
@@ -75,7 +76,7 @@ def test_factory_creates_real_windows_adapter_without_linux_imports(tmp_path: Pa
         for module in (pywintypes, win32api, win32con, win32cred, win32job)
     )
     assert "secretstorage" not in sys.modules
-    assert not any("platforms.linux" in name for name in sys.modules)
+    assert not any("platforms.linux" in name for name in modules_loaded_by_factory)
 
 
 def test_windows_secret_store_fails_closed_on_credential_manager_error(
@@ -1607,6 +1608,7 @@ def test_doctor_reports_windows_runtime_without_hardware_assumptions(tmp_path: P
 
     settings = AgentSettings(environment="test", server_url="http://testserver", state_dir=tmp_path)
     store = SQLiteStore(tmp_path / "agent.sqlite3")
+    store.initialize()
     checks = DoctorService(settings, store, WindowsPlatformAdapter(settings, store)).run()
     by_name = {check.name: check for check in checks}
     assert by_name["contracts"].status == "OK"

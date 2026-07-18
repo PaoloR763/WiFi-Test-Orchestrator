@@ -10,6 +10,29 @@ locally allowlisted profile administration, a LocalService Windows Service,
 service-owned enrollment IPC, diagnostic-only Npcap/dumpcap detection and a
 preliminary PyInstaller onedir bundle. It does not implement capture or iperf3.
 
+Phase 07 replaces the Linux stub with a NetworkManager D-Bus-first adapter,
+structured ip/iw/ethtool fallbacks, explicit encrypted headless secret storage, hardened
+systemd endpoint/Capture Node services and a private, offline DEB runtime with
+Pydantic 2. Capture uses an explicit specialized role, frequency/channel/size/
+duration policy, idempotent artifact preflight, a fully restorable snapshot,
+durable pre-change journal and verified rollback. Confirmed artifact retention
+is explicit and bounded. Capture retries use a versioned functional fingerprint,
+immutable binding and a durable recovery marker created before PCAP reservation;
+state and artifact roots may be separate filesystems. Linux doctor is a
+read-only composition and empty `iw link` output remains unavailable rather
+than disconnected. Tcpreplay is validation/simulation only and no
+optional tool is installed by the agent package. See
+`../../docs/phase07/`.
+
+Linux keeps the Phase 05 fail-closed default: omitting `linux_secret_backend`
+selects `secret_service`; `auto` is retained as a compatibility spelling with
+the same behavior and never falls back to persistent files. Headless files
+require explicit `linux_secret_backend = "encrypted_file"` (the DEB examples do
+so). Secret Service uses a 5-second total budget and a 2-second per-call bound,
+configurable with the validated `linux_secret_service_*_timeout_seconds`
+settings. NetworkManager inventory has one total monotonic budget and capability
+publication reports only providers that pass their current productive probe.
+
 Windows operations and packaging are documented in `../../docs/phase06/`.
 Windows inventory launches seven explicit `powershell.exe` workers with fixed,
 locally allowlisted provider commands; it does not use `Start-Job`, PowerShell's

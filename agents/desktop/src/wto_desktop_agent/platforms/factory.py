@@ -30,5 +30,7 @@ def create_platform_adapter(
     if sys.platform.startswith("linux"):
         from wto_desktop_agent.platforms.linux.adapter import LinuxPlatformAdapter
 
-        return LinuxPlatformAdapter()
+        if settings is None or store is None:
+            raise RuntimeError("Linux adapter requires settings and SQLite store")
+        return LinuxPlatformAdapter(settings, store)
     raise RuntimeError(f"unsupported desktop platform: {sys.platform}")

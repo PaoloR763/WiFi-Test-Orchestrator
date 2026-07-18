@@ -8,6 +8,30 @@ Versioning cuando existan releases publicadas.
 
 ## Unreleased
 
+- Preservado el default fail-closed de secretos Linux de Fase 05; Secret
+  Service completo ahora está acotado fuera del event loop, el store AES-GCM
+  opera descriptor-anchored y capabilities/systemd/NetworkManager publican
+  readiness actual bajo presupuestos totales por ciclo.
+- Agregado el adapter Linux NetworkManager/D-Bus-first con inventario
+  normalizado, fallbacks allowlisted `ip` JSON/`iw`/`ethtool`, clasificación de
+  fallas y secretos headless AES-GCM con paths 0700/0600.
+- Agregado el rol local explícito Capture Node: dumpcap condicionado por
+  detección/permisos/policy, selección de radio por frecuencia, radiotap,
+  idempotencia previa a la NIC, artifact outbox/retención, snapshot restaurable,
+  journal durable y rollback verificado de interfaz.
+- Cerrada la recuperación final de captura con fingerprint funcional versionado,
+  binding inmutable, marker durable previo a `O_EXCL`, roots de estado/artifacts
+  independientes, doctor Linux sin mutaciones, gramática cerrada de journals e
+  inventario que no infiere desconexión ante `iw link` vacío.
+- El DEB Linux usa wheelhouse fijado, Pydantic 2 y venv privado offline; doctor
+  ejecuta diagnósticos con la identidad allowlisted del servicio.
+- Agregadas unidades systemd separadas y endurecidas para endpoint/capture,
+  packaging DEB reproducible, lifecycle operativo y validación estática. El
+  endpoint no recibe capabilities Linux; Capture Node nunca recibe
+  CAP_SYS_ADMIN.
+- Agregados Flent condicional y tcpreplay deny-by-default limitado a
+  validación/simulación con namespace, scenario, interfaz, límites y hashes
+  aprobados. No se ejecuta replay real en Fase 07.
 - Endurecido el inventario Windows con siete procesos `powershell.exe`
   explícitos y consultas fijas, sin `Start-Job`, `JobRepository` ni terminación
   por PID. Cada worker publica PID+creation-time antes de una barrera común; el

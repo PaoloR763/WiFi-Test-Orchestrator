@@ -1,0 +1,9 @@
+Package: wto-agent
+Version: @VERSION@
+Section: net
+Priority: optional
+Architecture: @ARCH@
+Maintainer: WiFi Test Orchestrator Maintainers <maintainers@example.invalid>
+Depends: python3 (>= 3.12), python3-venv, adduser
+Description: WiFi Test Orchestrator Linux endpoint and Capture Node agent
+ Outbound-only Linux agent with an optional, explicitly provisioned Capture Node role.

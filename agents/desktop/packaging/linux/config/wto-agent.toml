@@ -1,0 +1,20 @@
+[agent]
+environment = "production"
+server_url = "https://orchestrator.example"
+state_dir = "/var/lib/wto-agent"
+artifacts_dir = "/var/lib/wto-agent/artifacts"
+artifact_staging_timeout_seconds = 300.0
+artifact_reconciliation_timeout_seconds = 30.0
+artifact_reconciliation_grace_seconds = 5.0
+artifact_retention_max_age_seconds = 2592000
+artifact_retention_count = 1000
+artifact_retention_bytes = 10737418240
+artifact_prune_batch_limit = 100
+node_role = "endpoint"
+linux_secret_backend = "encrypted_file"
+linux_secret_service_total_timeout_seconds = 5.0
+linux_secret_service_operation_timeout_seconds = 2.0
+capture_enabled = false
+tcpreplay_enabled = false
+allowed_plugins = ["protocol.contract_check"]
+log_level = "INFO"

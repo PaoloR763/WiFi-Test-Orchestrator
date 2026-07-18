@@ -5,7 +5,7 @@ pruebas Wi-Fi en laboratorios, pilotos y redes autorizadas.
 
 ## Estado del proyecto
 
-El proyecto se encuentra en la Fase 06. Incluye un entorno local ejecutable con
+El proyecto se encuentra en la Fase 07. Incluye un entorno local ejecutable con
 reverse proxy, frontend, backend, worker, PostgreSQL, Redis, artifact store
 filesystem, agente simulado outbound-only, autenticación local, sesiones con
 rotación, RBAC humano y auditoría append-only para aplicación/rol runtime. Los
@@ -95,6 +95,11 @@ La implementación y operación del agente desktop está en
 El adapter Windows de referencia de Fase 06 agrega Native Wi-Fi, inventario
 estructurado, control Wi-Fi local allowlisted, Windows Service, enrollment IPC
 y packaging preliminar onedir. Consulte [docs/phase06](docs/phase06/README.md).
+
+El adapter Linux de Fase 07 agrega NetworkManager/D-Bus, fallbacks estructurados,
+systemd, DEB y un rol Capture Node separado con dumpcap, rollback de interfaz,
+Flent condicional y tcpreplay limitado a simulación segura. Consulte
+[docs/phase07](docs/phase07/README.md).
 
 ## Agentes y capabilities
 

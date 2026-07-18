@@ -1,0 +1,38 @@
+[
+  {
+    "ifindex": 2,
+    "ifname": "eth0",
+    "flags": ["BROADCAST", "UP", "LOWER_UP"],
+    "mtu": 1500,
+    "operstate": "UP",
+    "link_type": "ether",
+    "address": "02:00:00:00:00:01",
+    "addr_info": [{"family": "inet", "local": "192.0.2.10", "prefixlen": 24}],
+    "stats64": {"rx": {"bytes": 100, "packets": 10, "errors": 0, "dropped": 1}, "tx": {"bytes": 200, "packets": 20, "errors": 2, "dropped": 3}}
+  },
+  {
+    "ifindex": 3,
+    "ifname": "wlan0",
+    "flags": ["BROADCAST", "UP", "LOWER_UP"],
+    "mtu": 1500,
+    "operstate": "UP",
+    "link_type": "ether",
+    "address": "02:00:00:00:00:02",
+    "addr_info": [
+      {"family": "inet", "local": "198.51.100.4", "prefixlen": 24},
+      {"family": "inet6", "local": "2001:db8::4", "prefixlen": 64}
+    ],
+    "stats64": {"rx": {"bytes": 300, "packets": 30, "errors": 0, "dropped": 0}, "tx": {"bytes": 400, "packets": 40, "errors": 0, "dropped": 0}}
+  },
+  {
+    "ifindex": 4,
+    "ifname": "veth0",
+    "flags": ["BROADCAST"],
+    "mtu": 1500,
+    "operstate": "DOWN",
+    "link_type": "ether",
+    "address": "02:00:00:00:00:03",
+    "linkinfo": {"info_kind": "veth"},
+    "addr_info": []
+  }
+]

@@ -1,0 +1,5 @@
+driver: iwlwifi
+version: 6.8.0
+firmware-version: 89.202a2f7b.0
+bus-info: 0000:01:00.0
+supports-statistics: yes

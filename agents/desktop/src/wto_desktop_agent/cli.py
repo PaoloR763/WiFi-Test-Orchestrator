@@ -91,6 +91,8 @@ def parser() -> argparse.ArgumentParser:
     restore = maintenance_commands.add_parser("restore")
     restore.add_argument("--source", type=Path, required=True)
     restore.add_argument("--confirm", action="store_true")
+    prune = maintenance_commands.add_parser("prune-artifacts")
+    prune.add_argument("--confirm", action="store_true")
     return result
 
 
@@ -109,13 +111,21 @@ def _token(args: argparse.Namespace) -> str:
 def _components(
     config_path: Path,
 ) -> tuple[AgentSettings, PlatformAdapter, SQLiteStore, HttpAgentTransport, IdentityManager]:
-    preliminary = load_settings(config_path)
-    settings = preliminary
-    settings.state_dir.mkdir(parents=True, exist_ok=True)
-    settings.effective_artifacts_dir.mkdir(parents=True, exist_ok=True)
+    settings = _load_prepared_settings(config_path)
     store = SQLiteStore(settings.database_path)
+    # Platform construction performs filesystem/SQLite reconciliation on
+    # Linux, so the existing schema must be open before adapters are built.
+    store.initialize()
+    platform, transport, identity = _compose_components(settings, store)
+    return settings, platform, store, transport, identity
+
+
+def _compose_components(
+    settings: AgentSettings,
+    store: SQLiteStore,
+) -> tuple[PlatformAdapter, HttpAgentTransport, IdentityManager]:
     platform = create_platform_adapter(
-        in_memory=preliminary.allow_in_memory_secret_store,
+        in_memory=settings.allow_in_memory_secret_store,
         settings=settings,
         store=store,
     )
@@ -131,7 +141,30 @@ def _components(
         SystemClock(),
         allow_insecure_development_store=settings.allow_in_memory_secret_store,
     )
-    return settings, platform, store, transport, identity
+    return platform, transport, identity
+
+
+def _prepare_state_directory(settings: AgentSettings) -> None:
+    if sys.platform.startswith("linux"):
+        from wto_desktop_agent.platforms.linux.state_directory import (
+            prepare_linux_state_directory,
+        )
+
+        prepare_linux_state_directory(settings.state_dir)
+        artifacts_dir = settings.effective_artifacts_dir
+        if artifacts_dir != settings.state_dir:
+            # Artifact staging has always required an owned 0700 root. Prepare
+            # that independently so it may be a sibling or another filesystem.
+            prepare_linux_state_directory(artifacts_dir)
+        return
+    settings.state_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+    settings.effective_artifacts_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+
+
+def _load_prepared_settings(config_path: Path) -> AgentSettings:
+    settings = load_settings(config_path)
+    _prepare_state_directory(settings)
+    return settings
 
 
 async def _run(args: argparse.Namespace) -> int:
@@ -143,20 +176,104 @@ async def _run(args: argparse.Namespace) -> int:
         run_service_dispatcher(args.config)
         return 0
     if args.command == "maintenance":
-        settings = load_settings(args.config)
+        settings = _load_prepared_settings(args.config)
         store = SQLiteStore(settings.database_path)
         if args.maintenance_command == "backup":
-            store.initialize()
-            destination = args.destination.resolve()
+            destination = args.destination.absolute()
             store.create_verified_backup(destination)
             print(json.dumps({"status": "verified", "destination": str(destination)}))
+            return 0
+        if args.maintenance_command == "prune-artifacts":
+            if not args.confirm:
+                raise PermissionError("artifact pruning requires explicit confirmation")
+            if os.name != "posix":
+                raise RuntimeError("descriptor-anchored artifact pruning requires Linux")
+            from wto_desktop_agent.application.artifacts import SQLiteArtifactStager
+
+            store.initialize()
+            stager = SQLiteArtifactStager(
+                store,
+                settings.effective_artifacts_dir,
+                trusted_root=settings.effective_artifacts_dir,
+                staging_timeout_seconds=settings.artifact_staging_timeout_seconds,
+                reconciliation_timeout_seconds=(settings.artifact_reconciliation_timeout_seconds),
+                reconciliation_cleanup_timeout_seconds=(
+                    settings.artifact_reconciliation_grace_seconds
+                ),
+            )
+            report = await stager.prune_confirmed(
+                maximum_age_seconds=settings.artifact_retention_max_age_seconds,
+                retain_count=settings.artifact_retention_count,
+                retain_bytes=settings.artifact_retention_bytes,
+                batch_limit=settings.artifact_prune_batch_limit,
+            )
+            print(
+                json.dumps(
+                    {
+                        "status": "completed",
+                        "selected": report.selected,
+                        "files_deleted": report.files_deleted,
+                        "rows_deleted": report.rows_deleted,
+                        "bytes_deleted": report.bytes_deleted,
+                        "issues": report.issues,
+                    },
+                    sort_keys=True,
+                )
+            )
             return 0
         if not args.confirm:
             raise PermissionError("SQLite restore requires explicit confirmation")
         version = store.restore_verified_backup(args.source)
         print(json.dumps({"status": "restored", "schema_version": version}))
         return 0
-    settings, platform, store, transport, identity = _components(args.config)
+    if args.command == "doctor":
+        # Doctor is intentionally not routed through runtime directory
+        # preparation: missing state is diagnostic evidence, not bootstrap work.
+        settings = load_settings(args.config)
+        store = SQLiteStore(settings.database_path)
+        doctor_platform: PlatformAdapter | None = None
+        platform_error: Exception | None = None
+        diagnostic_checks = None
+        if sys.platform.startswith("linux"):
+            from wto_desktop_agent.platforms.linux.doctor import LinuxReadOnlyDoctor
+
+            diagnostic_checks = await asyncio.to_thread(LinuxReadOnlyDoctor(settings).run)
+        else:
+            try:
+                store.inspect_health()
+            except Exception as error:
+                platform_error = error
+            else:
+                try:
+                    doctor_platform = create_platform_adapter(
+                        in_memory=settings.allow_in_memory_secret_store,
+                        settings=settings,
+                        store=store,
+                    )
+                except Exception as error:
+                    platform_error = error
+        configure_logging(settings.log_level)
+        checks = await asyncio.to_thread(
+            DoctorService(
+                settings,
+                store,
+                doctor_platform,
+                platform_error=platform_error,
+                diagnostic_checks=diagnostic_checks,
+            ).run
+        )
+        if args.as_json:
+            print(json.dumps([check.model_dump() for check in checks], sort_keys=True))
+        else:
+            for check in checks:
+                print(f"{check.status:8} {check.name}: {check.detail}")
+        return 1 if any(check.status == "BLOCKED" for check in checks) else 0
+    if sys.platform.startswith("linux"):
+        settings, platform, store, transport, identity = await asyncio.to_thread(
+            _components, args.config
+        )
+    else:
+        settings, platform, store, transport, identity = _components(args.config)
     configure_logging(settings.log_level)
     try:
         if args.command == "enroll":
@@ -164,7 +281,6 @@ async def _run(args: argparse.Namespace) -> int:
                 raise PermissionError(
                     "Windows enrollment must use the service-owned administrative named pipe"
                 )
-            store.initialize()
             token = _token(args)
             try:
                 enrolled = await identity.enroll(token=token, display_name=args.display_name)
@@ -173,7 +289,6 @@ async def _run(args: argparse.Namespace) -> int:
             print(json.dumps({"agent_id": enrolled["agent_id"], "status": "enrolled"}))
             return 0
         if args.command == "status":
-            store.initialize()
             current = store.identity()
             safe = {
                 "enrolled": bool(current and current.get("agent_id")),
@@ -184,20 +299,11 @@ async def _run(args: argparse.Namespace) -> int:
             }
             print(json.dumps(safe, sort_keys=True))
             return 0
-        if args.command == "doctor":
-            checks = DoctorService(settings, store, platform).run()
-            if args.as_json:
-                print(json.dumps([check.model_dump() for check in checks], sort_keys=True))
-            else:
-                for check in checks:
-                    print(f"{check.status:8} {check.name}: {check.detail}")
-            return 1 if any(check.status == "BLOCKED" for check in checks) else 0
         if args.command == "inventory":
             snapshot = await platform.wifi_collector.collect_inventory()
             print(snapshot.model_dump_json())
             return 0
         if args.command == "wifi":
-            store.initialize()
             if args.wifi_command == "profiles":
                 profiles = platform.network_controller.list_profiles(
                     args.interface_guid, confirmed=bool(args.confirm)
@@ -254,23 +360,29 @@ async def _run(args: argparse.Namespace) -> int:
                 print(response.model_dump_json(exclude_none=True))
                 return 0 if response.status == "enrolled" else 1
             if args.service_command == "install":
-                platform.service_manager.install(args.executable, args.config)
+                await asyncio.to_thread(
+                    platform.service_manager.install, args.executable, args.config
+                )
                 return 0
             if args.service_command == "uninstall":
-                platform.service_manager.uninstall()
+                await asyncio.to_thread(platform.service_manager.uninstall)
                 return 0
             if args.service_command == "purge-identity":
-                platform.service_manager.purge_identity(confirmed=bool(args.confirm))
+                await asyncio.to_thread(
+                    platform.service_manager.purge_identity,
+                    confirmed=bool(args.confirm),
+                )
                 return 0
             if args.service_command == "status":
-                print(json.dumps({"status": platform.service_manager.status()}))
+                status = await asyncio.to_thread(platform.service_manager.status)
+                print(json.dumps({"status": status}))
                 return 0
             if args.service_command in {"start", "stop", "pause", "resume"}:
-                platform.service_manager.control(args.service_command)
+                await asyncio.to_thread(platform.service_manager.control, args.service_command)
                 return 0
         registry = CapabilityRegistry(platform)
         if args.command == "capabilities":
-            entries = registry.entries()
+            entries = await registry.entries_async()
             if args.as_json:
                 print(json.dumps(entries, sort_keys=True))
             else:

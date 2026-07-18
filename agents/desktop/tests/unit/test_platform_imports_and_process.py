@@ -15,12 +15,14 @@ from wto_desktop_agent.platforms.factory import create_platform_adapter
 def test_factory_does_not_import_opposite_platform_modules(tmp_path: Path) -> None:
     before = set(sys.modules)
     kwargs: dict[str, object] = {"in_memory": False}
-    if platform.system().lower() == "windows":
+    if platform.system().lower() in {"windows", "linux"}:
         settings = AgentSettings(
             environment="test", server_url="http://testserver", state_dir=tmp_path
         )
         store = SQLiteStore(tmp_path / "agent.sqlite3")
         store.initialize()
+        if sys.platform.startswith("linux"):
+            settings.effective_artifacts_dir.mkdir(mode=0o700)
         kwargs.update(settings=settings, store=store)
     adapter = create_platform_adapter(**kwargs)  # type: ignore[arg-type]
     loaded_by_factory = set(sys.modules) - before

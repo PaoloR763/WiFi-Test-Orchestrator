@@ -1,14 +1,17 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
+import secrets
 from datetime import UTC
-from typing import Any
+from typing import Any, cast
 from uuid import UUID, uuid4
 
 from wto_desktop_agent import __version__
 from wto_desktop_agent.domain.errors import (
     IdentityNotEnrolledError,
     SecureStoreUnavailableError,
+    StateConflictError,
 )
 from wto_desktop_agent.infrastructure.sqlite.store import SQLiteStore
 from wto_desktop_agent.ports.platform import PlatformAdapter
@@ -39,6 +42,44 @@ class IdentityManager:
     def _require_secure_store(self) -> None:
         if not self.platform.secret_store.secure and not self.allow_insecure_development_store:
             raise SecureStoreUnavailableError("a persistent secure credential store is required")
+
+    async def _put_secret(self, key: str, value: str) -> None:
+        method = getattr(self.platform.secret_store, "aput", None)
+        if method is not None:
+            await method(key, value)
+            return
+        await asyncio.to_thread(self.platform.secret_store.put, key, value)
+
+    async def _get_secret(self, key: str) -> str | None:
+        method = getattr(self.platform.secret_store, "aget", None)
+        if method is not None:
+            return cast(str | None, await method(key))
+        return await asyncio.to_thread(self.platform.secret_store.get, key)
+
+    async def _delete_secret(self, key: str) -> None:
+        method = getattr(self.platform.secret_store, "adelete", None)
+        if method is not None:
+            await method(key)
+            return
+        await asyncio.to_thread(self.platform.secret_store.delete, key)
+
+    async def _ensure_secret_value(self, key: str, value: str) -> None:
+        current = await self._get_secret(key)
+        if current is None:
+            await self._put_secret(key, value)
+            return
+        if not secrets.compare_digest(
+            credential_fingerprint(current), credential_fingerprint(value)
+        ):
+            raise StateConflictError("credential reference contains a different value")
+
+    async def _ensure_secret_absent(self, key: str) -> None:
+        if await self._get_secret(key) is not None:
+            await self._delete_secret(key)
+
+    def _ensure_secret_absent_sync(self, key: str) -> None:
+        if self.platform.secret_store.get(key) is not None:
+            self.platform.secret_store.delete(key)
 
     async def enroll(self, *, token: str, display_name: str) -> dict[str, Any]:
         self._require_secure_store()
@@ -82,7 +123,7 @@ class IdentityManager:
         credential = str(response["credential"]["credential"])
         credential_id = str(response["credential"]["credential_id"])
         reference = f"credential.active.{credential_id}"
-        self.platform.secret_store.put(reference, credential)
+        await self._ensure_secret_value(reference, credential)
         self.store.update_identity(
             {
                 "device_id": str(response["device_id"]),
@@ -117,6 +158,20 @@ class IdentityManager:
             raise IdentityNotEnrolledError("active credential fingerprint mismatch")
         return credential
 
+    async def active_credential_async(self) -> str:
+        identity = self.store.identity()
+        if not identity or not identity.get("agent_id") or identity.get("revoked_at"):
+            raise IdentityNotEnrolledError("agent has no active identity")
+        reference = identity.get("active_credential_ref")
+        if not reference:
+            raise IdentityNotEnrolledError("agent has no active credential metadata")
+        credential = await self._get_secret(str(reference))
+        if credential is None:
+            raise IdentityNotEnrolledError("active credential is unavailable")
+        if credential_fingerprint(credential) != identity.get("active_credential_fingerprint"):
+            raise IdentityNotEnrolledError("active credential fingerprint mismatch")
+        return credential
+
     async def rotate(self) -> dict[str, Any]:
         self._require_secure_store()
         identity = self.store.identity()
@@ -124,7 +179,7 @@ class IdentityManager:
             raise IdentityNotEnrolledError("agent is not enrolled")
         state = str(identity["rotation_state"])
         if state == "activated":
-            self._finalize_activated(identity)
+            await self._finalize_activated(identity)
             identity = self.store.identity()
             assert identity is not None
             return identity
@@ -140,7 +195,7 @@ class IdentityManager:
             assert identity is not None
             state = "requested"
         if state == "requested":
-            active = self.active_credential()
+            active = await self.active_credential_async()
             rotation_key = UUID(str(identity["rotation_idempotency_key"]))
             response = await self.transport.create_rotation(
                 active,
@@ -150,7 +205,7 @@ class IdentityManager:
             pending = str(response["pending_credential"]["credential"])
             pending_id = str(response["pending_credential"]["credential_id"])
             pending_ref = f"credential.pending.{pending_id}"
-            self.platform.secret_store.put(pending_ref, pending)
+            await self._ensure_secret_value(pending_ref, pending)
             self.store.update_identity(
                 {
                     "pending_credential_id": pending_id,
@@ -173,7 +228,7 @@ class IdentityManager:
             state = "pending_stored"
         if state in {"pending_stored", "activation_uncertain"}:
             pending_ref = str(identity["pending_credential_ref"])
-            pending_value = self.platform.secret_store.get(pending_ref)
+            pending_value = await self._get_secret(pending_ref)
             if pending_value is None or credential_fingerprint(pending_value) != identity.get(
                 "pending_credential_fingerprint"
             ):
@@ -203,16 +258,16 @@ class IdentityManager:
             del pending_value
             identity = self.store.identity()
             assert identity is not None
-            self._finalize_activated(identity)
+            await self._finalize_activated(identity)
         result = self.store.identity()
         assert result is not None
         return result
 
-    def _finalize_activated(self, identity: dict[str, Any]) -> None:
+    async def _finalize_activated(self, identity: dict[str, Any]) -> None:
         previous = identity.get("previous_credential_ref")
         active = identity.get("active_credential_ref")
         if previous and previous != active:
-            self.platform.secret_store.delete(str(previous))
+            await self._ensure_secret_absent(str(previous))
         self.store.update_identity(
             {
                 "previous_credential_id": None,
@@ -233,6 +288,13 @@ class IdentityManager:
         identity = self.store.identity()
         if not identity:
             return
+        self.store.update_identity(
+            {
+                "revoked_at": identity.get("revoked_at")
+                or self.clock.now().astimezone(UTC).isoformat().replace("+00:00", "Z"),
+                "rotation_state": "revoked",
+            }
+        )
         for field in (
             "active_credential_ref",
             "pending_credential_ref",
@@ -240,10 +302,37 @@ class IdentityManager:
         ):
             reference = identity.get(field)
             if reference:
-                self.platform.secret_store.delete(str(reference))
+                self._ensure_secret_absent_sync(str(reference))
         self.store.update_identity(
             {
-                "revoked_at": self.clock.now().astimezone(UTC).isoformat().replace("+00:00", "Z"),
+                "active_credential_ref": None,
+                "pending_credential_ref": None,
+                "previous_credential_ref": None,
+                "rotation_state": "revoked",
+            }
+        )
+
+    async def mark_revoked_async(self) -> None:
+        identity = self.store.identity()
+        if not identity:
+            return
+        self.store.update_identity(
+            {
+                "revoked_at": identity.get("revoked_at")
+                or self.clock.now().astimezone(UTC).isoformat().replace("+00:00", "Z"),
+                "rotation_state": "revoked",
+            }
+        )
+        for field in (
+            "active_credential_ref",
+            "pending_credential_ref",
+            "previous_credential_ref",
+        ):
+            reference = identity.get(field)
+            if reference:
+                await self._ensure_secret_absent(str(reference))
+        self.store.update_identity(
+            {
                 "active_credential_ref": None,
                 "pending_credential_ref": None,
                 "previous_credential_ref": None,
@@ -261,5 +350,5 @@ class IdentityManager:
             ):
                 reference = identity.get(field)
                 if reference:
-                    self.platform.secret_store.delete(str(reference))
+                    self._ensure_secret_absent_sync(str(reference))
         self.store.purge_identity()
