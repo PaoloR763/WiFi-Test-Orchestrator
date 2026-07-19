@@ -61,6 +61,7 @@ out/
 # ============================================================
 
 .gradle/
+.kotlin/
 **/build/
 local.properties
 
@@ -94,6 +95,7 @@ Carthage/Build/
 
 *.class
 *.jar
+!agents/android/gradle/wrapper/gradle-wrapper.jar
 !shared/contracts/consumers/kotlin/gradle/wrapper/gradle-wrapper.jar
 *.war
 *.ear
