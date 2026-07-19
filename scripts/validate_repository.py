@@ -5,6 +5,7 @@ import re
 import shutil
 import subprocess
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -79,6 +80,198 @@ LF_PATHS = (
     Path(".gitattributes"),
     Path("shared/contracts/consumers/kotlin/gradlew"),
 )
+LINUX_PAYLOAD_ROOTS = (
+    Path("agents/desktop/packaging/linux"),
+    Path("scripts/linux"),
+)
+
+
+@dataclass(frozen=True)
+class LinuxPayloadGitRecord:
+    relative_path: str
+    text_attribute: str
+    eol_attribute: str
+    index_content: bytes
+    worktree_content: bytes
+    filtered_autocrlf_true: bytes
+    filtered_autocrlf_false: bytes
+
+
+def _git_output(arguments: list[str], *, input_data: bytes | None = None) -> bytes:
+    git = shutil.which("git")
+    if git is None:
+        raise RuntimeError("Git executable not found")
+    completed = (
+        subprocess.run(  # noqa: S603 - Git path and arguments are repository-controlled
+            [git, *arguments],
+            cwd=ROOT,
+            check=False,
+            input=input_data,
+            capture_output=True,
+        )
+    )
+    if completed.returncode != 0:
+        detail = completed.stderr.decode("utf-8", errors="replace").strip()
+        raise RuntimeError(detail or f"Git command failed: {' '.join(arguments)}")
+    return completed.stdout
+
+
+def collect_linux_payload_git_records() -> tuple[LinuxPayloadGitRecord, ...]:
+    roots = [root.as_posix() for root in LINUX_PAYLOAD_ROOTS]
+    tracked_raw = _git_output(["ls-files", "-z", "--", *roots])
+    paths = tuple(
+        sorted(
+            value.decode("utf-8", errors="strict")
+            for value in tracked_raw.split(b"\x00")
+            if value
+        )
+    )
+    attribute_input = b"".join(
+        path.encode("utf-8", errors="strict") + b"\x00" for path in paths
+    )
+    attribute_raw = _git_output(
+        ["check-attr", "--stdin", "-z", "text", "eol"],
+        input_data=attribute_input,
+    )
+    fields = [value for value in attribute_raw.split(b"\x00") if value]
+    if len(fields) != len(paths) * 6:
+        raise RuntimeError("Git returned an invalid Linux payload attribute response")
+    attributes: dict[str, dict[str, str]] = {path: {} for path in paths}
+    for index in range(0, len(fields), 3):
+        path, attribute, value = (
+            field.decode("utf-8", errors="strict")
+            for field in fields[index : index + 3]
+        )
+        if path not in attributes:
+            raise RuntimeError(
+                f"Git returned attributes for an unexpected path: {path}"
+            )
+        attributes[path][attribute] = value
+
+    records: list[LinuxPayloadGitRecord] = []
+    for path in paths:
+        resolved = attributes[path]
+        if set(resolved) != {"text", "eol"}:
+            raise RuntimeError(f"Git did not resolve text and eol for {path}")
+        index_content = _git_output(["show", f":{path}"])
+        filtered: dict[bool, bytes] = {}
+        for autocrlf in (True, False):
+            value = str(autocrlf).lower()
+            filtered[autocrlf] = _git_output(
+                [
+                    "-c",
+                    f"core.autocrlf={value}",
+                    "cat-file",
+                    "--filters",
+                    f"--path={path}",
+                    f":{path}",
+                ]
+            )
+        records.append(
+            LinuxPayloadGitRecord(
+                relative_path=path,
+                text_attribute=resolved["text"],
+                eol_attribute=resolved["eol"],
+                index_content=index_content,
+                worktree_content=(ROOT / path).read_bytes(),
+                filtered_autocrlf_true=filtered[True],
+                filtered_autocrlf_false=filtered[False],
+            )
+        )
+    return tuple(records)
+
+
+def validate_linux_payload_records(
+    records: tuple[LinuxPayloadGitRecord, ...] | list[LinuxPayloadGitRecord],
+    failures: list[str],
+) -> None:
+    for record in records:
+        relative = record.relative_path
+        if record.text_attribute == "set" and record.eol_attribute == "lf":
+            contents = (
+                ("index", record.index_content),
+                ("worktree", record.worktree_content),
+                ("core.autocrlf=true filter", record.filtered_autocrlf_true),
+                ("core.autocrlf=false filter", record.filtered_autocrlf_false),
+            )
+            for source, content in contents:
+                if b"\r" in content:
+                    failures.append(
+                        f"{relative}: CR byte in Linux text payload {source}"
+                    )
+                if b"\x00" in content:
+                    failures.append(
+                        f"{relative}: NUL byte in Linux text payload {source}"
+                    )
+            for source, content in contents[2:]:
+                if content != record.index_content:
+                    failures.append(
+                        f"{relative}: {source} differs from the indexed Linux payload"
+                    )
+            continue
+        if record.text_attribute == "unset":
+            for source, content in (
+                ("core.autocrlf=true filter", record.filtered_autocrlf_true),
+                ("core.autocrlf=false filter", record.filtered_autocrlf_false),
+            ):
+                if content != record.index_content:
+                    failures.append(
+                        f"{relative}: {source} mutates an explicitly binary payload"
+                    )
+            continue
+        failures.append(
+            f"{relative}: Linux payload attributes are ambiguous "
+            f"(text={record.text_attribute}, eol={record.eol_attribute}); "
+            "require text eol=lf or explicit -text"
+        )
+
+
+def validate_linux_payload_policy_examples(failures: list[str]) -> None:
+    binary_content = b"\x00\xff\r\n"
+    explicit_binary = LinuxPayloadGitRecord(
+        relative_path="agents/desktop/packaging/linux/future-payload.bin",
+        text_attribute="unset",
+        eol_attribute="unspecified",
+        index_content=binary_content,
+        worktree_content=binary_content,
+        filtered_autocrlf_true=binary_content,
+        filtered_autocrlf_false=binary_content,
+    )
+    binary_failures: list[str] = []
+    validate_linux_payload_records([explicit_binary], binary_failures)
+    if binary_failures:
+        failures.append("Linux payload policy rejects an explicitly -text binary file")
+
+    for description, content in (
+        ("text", b"new text payload\n"),
+        ("binary", binary_content),
+    ):
+        unclassified = LinuxPayloadGitRecord(
+            relative_path=f"agents/desktop/packaging/linux/future-{description}",
+            text_attribute="auto",
+            eol_attribute="unspecified",
+            index_content=content,
+            worktree_content=content,
+            filtered_autocrlf_true=content,
+            filtered_autocrlf_false=content,
+        )
+        unclassified_failures: list[str] = []
+        validate_linux_payload_records([unclassified], unclassified_failures)
+        if len(unclassified_failures) != 1 or "attributes are ambiguous" not in (
+            unclassified_failures[0]
+        ):
+            failures.append(
+                f"Linux payload policy accepts an unclassified {description} file"
+            )
+
+
+def validate_linux_payload_git_policy(failures: list[str]) -> None:
+    try:
+        records = collect_linux_payload_git_records()
+    except (OSError, RuntimeError, UnicodeError) as error:
+        failures.append(f"Linux payload Git policy could not be validated: {error}")
+        return
+    validate_linux_payload_records(records, failures)
 
 
 def files_to_scan() -> list[Path]:
@@ -250,6 +443,8 @@ def main() -> None:
     validate_gradle_wrapper(failures)
     validate_desktop_ci_policy(failures)
     validate_line_endings(failures)
+    validate_linux_payload_policy_examples(failures)
+    validate_linux_payload_git_policy(failures)
 
     for path in files_to_scan():
         content = path.read_text(encoding="utf-8")

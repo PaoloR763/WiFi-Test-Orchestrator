@@ -7,6 +7,7 @@ import os
 import shutil
 import sqlite3
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import closing
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
@@ -21,6 +22,30 @@ from wto_desktop_agent.infrastructure.sqlite.store import (
     SCHEMA_VERSION,
     SQLiteStore,
 )
+
+
+class _ConfigurationFailingConnection:
+    def __init__(
+        self,
+        primary_error: BaseException,
+        *,
+        close_error: BaseException | None = None,
+    ) -> None:
+        self.primary_error = primary_error
+        self.close_error = close_error
+        self.close_calls = 0
+        self.executed: list[str] = []
+        self.row_factory: object | None = None
+
+    def execute(self, statement: str) -> None:
+        self.executed.append(statement)
+        if statement == "PRAGMA journal_mode=WAL":
+            raise self.primary_error
+
+    def close(self) -> None:
+        self.close_calls += 1
+        if self.close_error is not None:
+            raise self.close_error
 
 
 def _downgrade_to_schema_1(store: SQLiteStore) -> None:
@@ -86,6 +111,55 @@ def test_schema_inventory_pragmas_and_migration(store: SQLiteStore) -> None:
         assert connection.execute("PRAGMA user_version").fetchone()[0] == 2
 
 
+def test_connect_closes_connection_when_post_connect_configuration_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    primary_error = RuntimeError("synthetic final PRAGMA failure")
+    connection = _ConfigurationFailingConnection(primary_error)
+
+    def connect(*_args: object, **_kwargs: object) -> _ConfigurationFailingConnection:
+        return connection
+
+    monkeypatch.setattr(sqlite3, "connect", connect)
+
+    with pytest.raises(RuntimeError) as raised:
+        SQLiteStore(tmp_path / "agent.sqlite3")._connect()
+
+    assert raised.value is primary_error
+    assert connection.executed == [
+        "PRAGMA foreign_keys=ON",
+        "PRAGMA busy_timeout=5000",
+        "PRAGMA synchronous=FULL",
+        "PRAGMA journal_mode=WAL",
+    ]
+    assert connection.close_calls == 1
+
+
+def test_connect_preserves_configuration_error_when_close_also_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    primary_error = RuntimeError("synthetic final PRAGMA failure")
+    close_error = OSError("synthetic close failure")
+    connection = _ConfigurationFailingConnection(
+        primary_error,
+        close_error=close_error,
+    )
+
+    def connect(*_args: object, **_kwargs: object) -> _ConfigurationFailingConnection:
+        return connection
+
+    monkeypatch.setattr(sqlite3, "connect", connect)
+
+    with pytest.raises(RuntimeError) as raised:
+        SQLiteStore(tmp_path / "agent.sqlite3")._connect()
+
+    assert raised.value is primary_error
+    assert connection.close_calls == 1
+    assert raised.value.__notes__ == ["SQLite connection close also failed: OSError"]
+
+
 def test_immutable_identity_read_creates_no_sqlite_sidecars(tmp_path: Path) -> None:
     path = tmp_path / "agent.sqlite3"
     store = SQLiteStore(path)
@@ -139,7 +213,7 @@ def test_schema_1_is_backed_up_and_migrated_forward_to_schema_2(tmp_path: Path) 
             ).fetchone()[0]
             == 1
         )
-    with store._connect(backup) as connection:
+    with closing(store._connect(backup)) as connection:
         assert connection.execute("PRAGMA quick_check").fetchone()[0] == "ok"
         assert connection.execute("PRAGMA user_version").fetchone()[0] == 1
 
@@ -174,15 +248,16 @@ def test_existing_schema_2_requires_application_identity_without_mutation(
     path = tmp_path / "agent.sqlite3"
     store = SQLiteStore(path)
     store.initialize()
-    with sqlite3.connect(path) as connection:
-        connection.execute(f"PRAGMA application_id={application_id}")
+    with closing(sqlite3.connect(path)) as connection:
+        with connection:
+            connection.execute(f"PRAGMA application_id={application_id}")
     before = path.read_bytes()
 
     with pytest.raises(RuntimeError, match="belongs to another application|not claimed"):
         SQLiteStore(path).initialize()
 
     assert path.read_bytes() == before
-    with sqlite3.connect(path) as connection:
+    with closing(sqlite3.connect(path)) as connection:
         assert connection.execute("PRAGMA application_id").fetchone()[0] == application_id
         assert connection.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
     assert not path.with_suffix(path.suffix + ".pre-migrate.bak").exists()
@@ -213,7 +288,7 @@ def test_pre_migration_backup_mismatch_blocks_without_overwrite(tmp_path: Path) 
         live.initialize()
 
     assert backup.read_bytes() == original
-    with live._connect(live.path) as connection:
+    with closing(live._connect(live.path)) as connection:
         assert connection.execute("PRAGMA user_version").fetchone()[0] == 1
 
 
@@ -228,7 +303,7 @@ def test_corrupt_pre_migration_backup_blocks_without_overwrite(tmp_path: Path) -
         store.initialize()
 
     assert backup.read_bytes() == b"not-a-sqlite-database"
-    with store._connect(store.path) as connection:
+    with closing(store._connect(store.path)) as connection:
         assert connection.execute("PRAGMA user_version").fetchone()[0] == 1
 
 

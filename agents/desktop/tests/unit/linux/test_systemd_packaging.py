@@ -50,7 +50,11 @@ def test_conffiles_validator_rejects_noncanonical_or_unexpected_entries(
 
 
 def test_conffiles_contains_each_canonical_configuration_once() -> None:
-    lines = (PACKAGING / "debian" / "conffiles").read_text(encoding="utf-8").splitlines()
+    raw = (PACKAGING / "debian" / "conffiles").read_bytes()
+    assert raw == (b"/etc/wto-agent/wto-agent.toml\n" b"/etc/wto-agent/capture-node.toml\n")
+    assert raw.count(b"\n") == 2
+    assert b"\r" not in raw
+    lines = raw.decode("utf-8").splitlines()
 
     assert lines == [
         "/etc/wto-agent/wto-agent.toml",

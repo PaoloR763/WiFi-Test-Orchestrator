@@ -49,16 +49,22 @@ class IwPoolRunner(FakeRunner):
         *,
         delay_seconds: float = 0.0,
         blocked: bool = False,
+        blocked_call_target: int | None = None,
         failures: frozenset[tuple[str, str]] = frozenset(),
         nonzero: frozenset[tuple[str, str]] = frozenset(),
+        timeouts: frozenset[tuple[str, str]] = frozenset(),
     ) -> None:
         super().__init__({})
         self.delay_seconds = delay_seconds
         self.blocked = blocked
+        self.blocked_call_target = blocked_call_target
         self.failures = failures
         self.nonzero = nonzero
+        self.timeouts = timeouts
         self.release = asyncio.Event()
         self.started = asyncio.Event()
+        self.blocked_batch_started = asyncio.Event()
+        self.reject_new_work = False
         self.active = 0
         self.max_active = 0
 
@@ -68,13 +74,19 @@ class IwPoolRunner(FakeRunner):
         interface = str(request.arguments["interface"])
         key = (interface, request.command_id)
         self.calls.append(request)
+        if self.reject_new_work:
+            raise AssertionError("iw worker started new work after the global deadline")
         self.active += 1
         self.max_active = max(self.max_active, self.active)
         self.started.set()
+        if self.blocked_call_target is not None and len(self.calls) == self.blocked_call_target:
+            self.blocked_batch_started.set()
         try:
             if self.blocked:
                 await self.release.wait()
             await asyncio.sleep(self.delay_seconds)
+            if key in self.timeouts:
+                raise TimeoutError(f"controlled timeout for {interface} {request.command_id}")
             if key in self.failures:
                 raise RuntimeError(f"controlled failure for {interface} {request.command_id}")
             if key in self.nonzero:
@@ -92,14 +104,20 @@ class EttoolPoolRunner(FakeRunner):
         *,
         delay_seconds: float = 0.0,
         blocked: bool = False,
+        blocked_call_target: int | None = None,
         failures: frozenset[str] = frozenset(),
+        timeouts: frozenset[str] = frozenset(),
     ) -> None:
         super().__init__({})
         self.delay_seconds = delay_seconds
         self.blocked = blocked
+        self.blocked_call_target = blocked_call_target
         self.failures = failures
+        self.timeouts = timeouts
         self.release = asyncio.Event()
         self.started = asyncio.Event()
+        self.blocked_batch_started = asyncio.Event()
+        self.reject_new_work = False
         self.active = 0
         self.max_active = 0
         self.completed: list[str] = []
@@ -109,13 +127,19 @@ class EttoolPoolRunner(FakeRunner):
         assert request.command_id == "linux.ethtool.driver"
         interface = str(request.arguments["interface"])
         self.calls.append(request)
+        if self.reject_new_work:
+            raise AssertionError("ethtool worker started new work after the global deadline")
         self.active += 1
         self.max_active = max(self.max_active, self.active)
         self.started.set()
+        if self.blocked_call_target is not None and len(self.calls) == self.blocked_call_target:
+            self.blocked_batch_started.set()
         try:
             if self.blocked:
                 await self.release.wait()
             await asyncio.sleep(self.delay_seconds)
+            if interface in self.timeouts:
+                raise TimeoutError(f"controlled timeout for {interface}")
             if interface in self.failures:
                 raise RuntimeError(f"controlled failure for {interface}")
             self.completed.append(interface)
@@ -298,6 +322,37 @@ def _live_ethtool_workers() -> list[asyncio.Task[object]]:
         for task in asyncio.all_tasks()
         if task.get_name().startswith("linux-ethtool-worker-") and not task.done()
     ]
+
+
+def _controlled_worker_timeouts(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    worker_name_prefix: str,
+) -> list[asyncio.Timeout]:
+    """Return real timeout scopes whose expiry is controlled by the test."""
+
+    original_timeout = asyncio.timeout
+    scopes: list[asyncio.Timeout] = []
+
+    def controlled_timeout(delay: float | None) -> asyncio.Timeout:
+        task = asyncio.current_task()
+        if task is not None and task.get_name().startswith(worker_name_prefix):
+            scope = original_timeout(None)
+            scopes.append(scope)
+            return scope
+        return original_timeout(delay)
+
+    monkeypatch.setattr(
+        "wto_desktop_agent.platforms.linux.inventory.asyncio.timeout",
+        controlled_timeout,
+    )
+    return scopes
+
+
+def _expire_timeout_scopes(scopes: list[asyncio.Timeout]) -> None:
+    loop = asyncio.get_running_loop()
+    for scope in scopes:
+        scope.reschedule(loop.time())
 
 
 def _interface(snapshot: object, key: str) -> dict[str, object]:
@@ -979,15 +1034,28 @@ async def test_collect_inventory_uses_eight_iw_tasks_for_4096_vifs(
 @pytest.mark.asyncio
 async def test_iw_detail_pool_global_deadline_stops_blocked_probes_and_new_work(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    runner = IwPoolRunner(blocked=True)
-    collector = _iw_pool_collector(tmp_path, runner, timeout_seconds=1)
+    runner = IwPoolRunner(blocked=True, blocked_call_target=8)
+    collector = _iw_pool_collector(tmp_path, runner, timeout_seconds=60)
     interfaces = tuple(f"w{index:04d}" for index in range(64))
+    scopes = _controlled_worker_timeouts(
+        monkeypatch,
+        worker_name_prefix="linux-iw-detail-worker-",
+    )
+    operation = asyncio.create_task(
+        collector._bounded_iw_details(interfaces, time.monotonic() + 60)
+    )
 
-    results = await collector._bounded_iw_details(interfaces, time.monotonic() + 0.05)
+    await asyncio.wait_for(runner.blocked_batch_started.wait(), timeout=1)
+    assert len(scopes) == 8
+    runner.reject_new_work = True
+    _expire_timeout_scopes(scopes)
+
+    results = await asyncio.wait_for(operation, timeout=1)
 
     assert len(results) == len(interfaces)
-    assert 0 < len(runner.calls) <= 8
+    assert len(runner.calls) == 8
     assert {call.command_id for call in runner.calls} == {"linux.iw.info"}
     for _name, result in results:
         assert not isinstance(result, BaseException)
@@ -996,6 +1064,51 @@ async def test_iw_detail_pool_global_deadline_stops_blocked_probes_and_new_work(
         assert isinstance(info, LinuxProviderError)
         assert link.detail == "inventory total timeout expired"
         assert info.detail == "inventory total timeout expired"
+    assert runner.active == 0
+    assert _live_iw_workers() == []
+
+
+@pytest.mark.asyncio
+async def test_iw_detail_pool_expired_before_start_does_not_call_runner(
+    tmp_path: Path,
+) -> None:
+    runner = IwPoolRunner()
+    collector = _iw_pool_collector(tmp_path, runner)
+    interfaces = tuple(f"w{index:04d}" for index in range(17))
+
+    results = await collector._bounded_iw_details(interfaces, time.monotonic() - 1)
+
+    assert [name for name, _result in results] == list(interfaces)
+    assert runner.calls == []
+    assert all(
+        not isinstance(result, BaseException)
+        and all(
+            isinstance(command_result, LinuxProviderError)
+            and command_result.detail == "inventory total timeout expired"
+            for command_result in result
+        )
+        for _name, result in results
+    )
+    assert _live_iw_workers() == []
+
+
+@pytest.mark.asyncio
+async def test_iw_detail_pool_individual_timeout_does_not_close_global_pool(
+    tmp_path: Path,
+) -> None:
+    runner = IwPoolRunner(timeouts=frozenset({("w0000", "linux.iw.info")}))
+    collector = _iw_pool_collector(tmp_path, runner)
+    interfaces = tuple(f"w{index:04d}" for index in range(17))
+
+    results = await collector._bounded_iw_details(interfaces, time.monotonic() + 2)
+
+    assert [name for name, _result in results] == list(interfaces)
+    assert len(runner.calls) == len(interfaces) * 2
+    timed_out = dict(results)["w0000"]
+    assert not isinstance(timed_out, BaseException)
+    link, info = timed_out
+    assert isinstance(link, dict)
+    assert isinstance(info, TimeoutError)
     assert runner.active == 0
     assert _live_iw_workers() == []
 
@@ -1066,7 +1179,7 @@ async def test_iw_detail_pool_isolates_failures_and_disappearing_interfaces(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("interface_count", [0, 1, 7, 8, 17])
-async def test_ethtool_pool_has_fixed_concurrency_and_deterministic_order(
+async def test_ethtool_pool_has_fixed_concurrency_and_preserves_input_order(
     tmp_path: Path,
     interface_count: int,
 ) -> None:
@@ -1076,7 +1189,7 @@ async def test_ethtool_pool_has_fixed_concurrency_and_deterministic_order(
 
     results = await collector._bounded_ethtool(interfaces, time.monotonic() + 2)
 
-    assert [name for name, _result in results] == sorted(interfaces)
+    assert [name for name, _result in results] == list(interfaces)
     assert runner.max_active == min(interface_count, 8)
     assert len(runner.calls) == interface_count
     assert runner.active == 0
@@ -1113,6 +1226,7 @@ async def test_ethtool_pool_uses_eight_tasks_for_4096_interfaces(
     results = await collector._bounded_ethtool(interfaces, time.monotonic() + 10)
 
     assert len(results) == 4096
+    assert [name for name, _result in results] == list(interfaces)
     assert len(runner.calls) == 4096
     assert runner.max_active <= 8
     assert len(created) == 8
@@ -1123,20 +1237,68 @@ async def test_ethtool_pool_uses_eight_tasks_for_4096_interfaces(
 @pytest.mark.asyncio
 async def test_ethtool_pool_global_deadline_stops_blocked_probes_and_new_work(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    runner = EttoolPoolRunner(blocked=True)
-    collector = _ethtool_pool_collector(tmp_path, runner, timeout_seconds=1)
+    runner = EttoolPoolRunner(blocked=True, blocked_call_target=8)
+    collector = _ethtool_pool_collector(tmp_path, runner, timeout_seconds=60)
     interfaces = tuple(f"eth{index:04d}" for index in range(64))
+    scopes = _controlled_worker_timeouts(
+        monkeypatch,
+        worker_name_prefix="linux-ethtool-worker-",
+    )
+    operation = asyncio.create_task(collector._bounded_ethtool(interfaces, time.monotonic() + 60))
 
-    results = await collector._bounded_ethtool(interfaces, time.monotonic() + 0.05)
+    await asyncio.wait_for(runner.blocked_batch_started.wait(), timeout=1)
+    assert len(scopes) == 8
+    runner.reject_new_work = True
+    _expire_timeout_scopes(scopes)
+
+    results = await asyncio.wait_for(operation, timeout=1)
 
     assert len(results) == len(interfaces)
-    assert 0 < len(runner.calls) <= 8
+    assert len(runner.calls) == 8
     assert all(
         isinstance(result, LinuxProviderError)
         and result.detail == "inventory total timeout expired"
         for _name, result in results
     )
+    assert runner.active == 0
+    assert _live_ethtool_workers() == []
+
+
+@pytest.mark.asyncio
+async def test_ethtool_pool_expired_before_start_does_not_call_runner(
+    tmp_path: Path,
+) -> None:
+    runner = EttoolPoolRunner()
+    collector = _ethtool_pool_collector(tmp_path, runner)
+    interfaces = tuple(f"eth{index:04d}" for index in range(17))
+
+    results = await collector._bounded_ethtool(interfaces, time.monotonic() - 1)
+
+    assert [name for name, _result in results] == list(interfaces)
+    assert runner.calls == []
+    assert all(
+        isinstance(result, LinuxProviderError)
+        and result.detail == "inventory total timeout expired"
+        for _name, result in results
+    )
+    assert _live_ethtool_workers() == []
+
+
+@pytest.mark.asyncio
+async def test_ethtool_pool_individual_timeout_does_not_close_global_pool(
+    tmp_path: Path,
+) -> None:
+    runner = EttoolPoolRunner(timeouts=frozenset({"eth0000"}))
+    collector = _ethtool_pool_collector(tmp_path, runner)
+    interfaces = tuple(f"eth{index:04d}" for index in range(17))
+
+    results = await collector._bounded_ethtool(interfaces, time.monotonic() + 2)
+
+    assert [name for name, _result in results] == list(interfaces)
+    assert len(runner.calls) == len(interfaces)
+    assert isinstance(dict(results)["eth0000"], TimeoutError)
     assert runner.active == 0
     assert _live_ethtool_workers() == []
 
@@ -1175,8 +1337,8 @@ async def test_ethtool_pool_isolates_probe_failure_and_preserves_order(
         time.monotonic() + 2,
     )
 
-    assert [name for name, _result in results] == ["eth0001", "eth0002", "eth0003"]
-    assert isinstance(results[1][1], RuntimeError)
+    assert [name for name, _result in results] == ["eth0003", "eth0001", "eth0002"]
+    assert isinstance(results[2][1], RuntimeError)
     assert set(runner.completed) == {"eth0001", "eth0003"}
     assert len(runner.calls) == 3
     assert runner.active == 0

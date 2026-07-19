@@ -6,6 +6,7 @@ import re
 import stat
 import sys
 import tomllib
+from contextlib import closing
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -111,7 +112,7 @@ def test_doctor_does_not_create_or_migrate_sqlite(tmp_path: Path) -> None:
     checks = DoctorService(settings, store, SimulatedPlatformAdapter()).run()
 
     assert {item.name: item for item in checks}["sqlite"].status == "BLOCKED"
-    with store._connect(path) as connection:
+    with closing(store._connect(path)) as connection:
         assert connection.execute("PRAGMA user_version").fetchone()[0] == 1
     assert not path.with_suffix(path.suffix + ".pre-migrate.bak").exists()
 

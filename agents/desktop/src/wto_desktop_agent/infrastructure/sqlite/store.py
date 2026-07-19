@@ -45,12 +45,21 @@ class SQLiteStore:
 
     def _connect(self, path: Path | None = None) -> sqlite3.Connection:
         connection = sqlite3.connect(path or self.path, timeout=5.0, isolation_level=None)
-        connection.row_factory = sqlite3.Row
-        connection.execute("PRAGMA foreign_keys=ON")
-        connection.execute("PRAGMA busy_timeout=5000")
-        connection.execute("PRAGMA synchronous=FULL")
-        if path is None:
-            connection.execute("PRAGMA journal_mode=WAL")
+        try:
+            connection.row_factory = sqlite3.Row
+            connection.execute("PRAGMA foreign_keys=ON")
+            connection.execute("PRAGMA busy_timeout=5000")
+            connection.execute("PRAGMA synchronous=FULL")
+            if path is None:
+                connection.execute("PRAGMA journal_mode=WAL")
+        except BaseException as primary_error:
+            try:
+                connection.close()
+            except BaseException as close_error:
+                primary_error.add_note(
+                    f"SQLite connection close also failed: {type(close_error).__name__}"
+                )
+            raise
         return connection
 
     @contextmanager

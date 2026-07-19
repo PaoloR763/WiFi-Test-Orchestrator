@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import errno
+import gc
 import hashlib
 import json
 import os
@@ -1027,25 +1029,210 @@ def test_journal_constructor_closes_root_descriptor_when_recovery_fails(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    closed: list[int] = []
+    target: list[FileCaptureJournal] = []
+    target_identity: tuple[int, int] | None = None
+    target_descriptor = -1
+    target_closes: list[tuple[int, int, int]] = []
+    unrelated_closes: list[tuple[int, str]] = []
+    recovery_error = OSError("controlled journal recovery failure")
     real_close = capture_module.close_descriptor
 
-    def fail_recovery(_self: FileCaptureJournal) -> None:
-        raise OSError("controlled journal recovery failure")
+    foreign = CaptureWorkspace(tmp_path / "foreign-workspace")
+    foreign_descriptor = foreign._root_descriptor
+    foreign_metadata = os.fstat(foreign_descriptor)
+    foreign_identity = (int(foreign_metadata.st_dev), int(foreign_metadata.st_ino))
+    foreign._test_cycle = foreign  # type: ignore[attr-defined]
+    del foreign
 
-    def recording_close(descriptor: int, **kwargs: object) -> None:
-        closed.append(descriptor)
-        real_close(descriptor, **kwargs)  # type: ignore[arg-type]
+    def fail_recovery(self: FileCaptureJournal) -> None:
+        nonlocal target_descriptor, target_identity
+        target.append(self)
+        target_descriptor = self._root_descriptor
+        metadata = os.fstat(target_descriptor)
+        target_identity = (int(metadata.st_dev), int(metadata.st_ino))
+        gc.collect()
+        raise recovery_error
+
+    def recording_close(
+        descriptor: int,
+        *,
+        primary_error: BaseException | None = None,
+        context: str = "descriptor",
+    ) -> None:
+        try:
+            metadata = os.fstat(descriptor)
+            identity = (int(metadata.st_dev), int(metadata.st_ino))
+        except OSError:
+            identity = None
+        if (
+            target_identity is not None
+            and descriptor == target_descriptor
+            and identity == target_identity
+            and primary_error is recovery_error
+            and context == "capture journal directory"
+        ):
+            target_closes.append((descriptor, *identity))
+        else:
+            unrelated_closes.append((descriptor, context))
+        real_close(
+            descriptor,
+            primary_error=primary_error,
+            context=context,
+        )
 
     monkeypatch.setattr(FileCaptureJournal, "_recover_temporaries", fail_recovery)
     monkeypatch.setattr(capture_module, "close_descriptor", recording_close)
 
-    with pytest.raises(OSError, match="recovery failure"):
+    with pytest.raises(OSError, match="recovery failure") as raised:
         FileCaptureJournal(tmp_path / "state")
 
-    assert len(closed) == 1
-    with pytest.raises(OSError):
-        os.fstat(closed[0])
+    assert raised.value is recovery_error
+    assert len(target) == 1
+    assert target[0]._root_descriptor == -1
+    assert target_identity is not None
+    assert target_closes == [(target_descriptor, *target_identity)]
+    assert (foreign_descriptor, "capture workspace directory") in unrelated_closes
+    with pytest.raises(OSError) as closed_error:
+        os.fstat(target_descriptor)
+    assert closed_error.value.errno == errno.EBADF
+
+    replacement_descriptors: list[int] = []
+    try:
+        for _ in range(128):
+            replacement_descriptors.append(os.open(tmp_path, os.O_RDONLY))
+            if replacement_descriptors[-1] == target_descriptor:
+                break
+        assert target_descriptor in replacement_descriptors
+        replacement_metadata = os.fstat(target_descriptor)
+        target[0].close()
+        target[0].__del__()
+        assert os.fstat(target_descriptor) == replacement_metadata
+        assert target_closes == [(target_descriptor, *target_identity)]
+    finally:
+        for descriptor in replacement_descriptors:
+            os.close(descriptor)
+
+    assert foreign_identity != target_identity
+
+
+@pytest.mark.skipif(os.name != "posix", reason="descriptor semantics require POSIX")
+@pytest.mark.parametrize(
+    ("resource_type", "root_name", "close_context", "error_message"),
+    [
+        (
+            FileCaptureJournal,
+            "capture-journal",
+            "capture journal directory",
+            "capture journal directory ownership or mode is unsafe",
+        ),
+        (
+            CaptureWorkspace,
+            "workspace",
+            "capture workspace",
+            "capture workspace ownership or mode is unsafe",
+        ),
+    ],
+)
+def test_unsafe_root_metadata_invalidates_descriptor_before_close(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    resource_type: type[FileCaptureJournal] | type[CaptureWorkspace],
+    root_name: str,
+    close_context: str,
+    error_message: str,
+) -> None:
+    instances: list[FileCaptureJournal | CaptureWorkspace] = []
+    close_observations: list[tuple[int, int, int, int, BaseException | None, str]] = []
+    real_close = capture_module.close_descriptor
+    real_os_close = os.close
+    inject_close_failure = False
+    root = tmp_path / root_name
+    if resource_type is FileCaptureJournal:
+        root = tmp_path / "state" / root_name
+    root.mkdir(parents=True, mode=0o755)
+    os.chmod(root, 0o755)  # noqa: S103 - intentionally unsafe constructor fixture
+
+    class TrackedResource(resource_type):  # type: ignore[valid-type,misc]
+        def __new__(cls, *_args: object, **_kwargs: object) -> TrackedResource:
+            instance = object.__new__(cls)
+            instances.append(instance)
+            return instance
+
+    def preserve_unsafe_mode(_path: Path, _mode: int) -> None:
+        return None
+
+    def recording_close(
+        descriptor: int,
+        *,
+        primary_error: BaseException | None = None,
+        context: str = "descriptor",
+    ) -> None:
+        nonlocal inject_close_failure
+        metadata = os.fstat(descriptor)
+        close_observations.append(
+            (
+                descriptor,
+                int(metadata.st_dev),
+                int(metadata.st_ino),
+                instances[-1]._root_descriptor,
+                primary_error,
+                context,
+            )
+        )
+        inject_close_failure = context == close_context
+        try:
+            real_close(
+                descriptor,
+                primary_error=primary_error,
+                context=context,
+            )
+        finally:
+            inject_close_failure = False
+
+    def close_then_fail(descriptor: int) -> None:
+        real_os_close(descriptor)
+        if inject_close_failure:
+            raise OSError("controlled unsafe root close failure")
+
+    constructor_root = tmp_path / "state" if resource_type is FileCaptureJournal else root
+    with monkeypatch.context() as constructor_patch:
+        constructor_patch.setattr(capture_module.os, "chmod", preserve_unsafe_mode)
+        constructor_patch.setattr(capture_module.os, "close", close_then_fail)
+        constructor_patch.setattr(capture_module, "close_descriptor", recording_close)
+        with pytest.raises(PermissionError, match=error_message) as raised:
+            TrackedResource(constructor_root)
+
+    assert len(instances) == 1
+    instance = instances[0]
+    assert instance._root_descriptor == -1
+    assert len(close_observations) == 1
+    descriptor, device, inode, observed_sentinel, close_primary, observed_context = (
+        close_observations[0]
+    )
+    assert (device, inode) == (int(root.stat().st_dev), int(root.stat().st_ino))
+    assert observed_sentinel == -1
+    assert close_primary is raised.value
+    assert observed_context == close_context
+    assert any("controlled unsafe root close failure" in note for note in raised.value.__notes__)
+    with pytest.raises(OSError) as closed_error:
+        os.fstat(descriptor)
+    assert closed_error.value.errno == errno.EBADF
+
+    replacement_descriptors: list[int] = []
+    try:
+        for _ in range(128):
+            replacement_descriptors.append(os.open(root, os.O_RDONLY))
+            if replacement_descriptors[-1] == descriptor:
+                break
+        assert descriptor in replacement_descriptors
+        replacement_metadata = os.fstat(descriptor)
+        instance.close()
+        instance.__del__()
+        assert os.fstat(descriptor) == replacement_metadata
+        assert len(close_observations) == 1
+    finally:
+        for replacement in replacement_descriptors:
+            os.close(replacement)
 
 
 @pytest.mark.skipif(os.name != "posix", reason="journal recovery requires POSIX")

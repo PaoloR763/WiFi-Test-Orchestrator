@@ -70,6 +70,34 @@ _IwDetailResult = tuple[
 ]
 
 
+def _inventory_deadline_error(command_id: str) -> LinuxProviderError:
+    return LinuxProviderError(
+        command_id,
+        "transient_failure",
+        "inventory total timeout expired",
+    )
+
+
+@dataclass
+class _InventoryDeadlineState:
+    """Sticky global-deadline state shared by one bounded worker pool."""
+
+    deadline: float
+    global_deadline_observed: bool = False
+
+    def observe_global_deadline(self) -> None:
+        self.global_deadline_observed = True
+
+    def remaining(self) -> float:
+        if self.global_deadline_observed:
+            raise _inventory_deadline_error("linux-inventory")
+        remaining = self.deadline - time.monotonic()
+        if remaining <= 0:
+            self.observe_global_deadline()
+            raise _inventory_deadline_error("linux-inventory")
+        return remaining
+
+
 class NetworkManagerProvider(Protocol):
     async def collect(self) -> NetworkManagerSnapshot: ...
 
@@ -620,10 +648,16 @@ class LinuxInventoryCollector:
             source_errors=source_errors,
         )
 
-    async def _iw_details(self, interface: str, deadline: float) -> _IwDetailResult:
+    async def _iw_details(
+        self,
+        interface: str,
+        deadline_state: _InventoryDeadlineState,
+    ) -> _IwDetailResult:
         try:
             info_raw = await self._command(
-                "linux.iw.info", {"interface": interface}, deadline=deadline
+                "linux.iw.info",
+                {"interface": interface},
+                deadline=deadline_state.deadline,
             )
         except Exception as error:
             info: dict[str, object] | BaseException = error
@@ -634,8 +668,15 @@ class LinuxInventoryCollector:
                 info = error
 
         try:
+            deadline_state.remaining()
+        except LinuxProviderError:
+            return _inventory_deadline_error("linux.iw.link"), info
+
+        try:
             link_raw = await self._command(
-                "linux.iw.link", {"interface": interface}, deadline=deadline
+                "linux.iw.link",
+                {"interface": interface},
+                deadline=deadline_state.deadline,
             )
         except Exception as error:
             link: dict[str, object] | BaseException = error
@@ -661,25 +702,26 @@ class LinuxInventoryCollector:
         worker_count = min(_MAX_IW_DETAIL_WORKERS, len(ordered))
         results: list[_IwDetailResult | BaseException | None] = [None] * len(ordered)
         next_index = 0
-
-        def deadline_error(command_id: str) -> LinuxProviderError:
-            return LinuxProviderError(
-                command_id,
-                "transient_failure",
-                "inventory total timeout expired",
-            )
+        deadline_state = _InventoryDeadlineState(deadline)
 
         def deadline_result() -> _IwDetailResult:
             return (
-                deadline_error("linux.iw.link"),
-                deadline_error("linux.iw.info"),
+                _inventory_deadline_error("linux.iw.link"),
+                _inventory_deadline_error("linux.iw.info"),
             )
+
+        try:
+            deadline_state.remaining()
+        except LinuxProviderError:
+            return [(interface, deadline_result()) for interface in ordered]
 
         async def worker() -> None:
             nonlocal next_index
             while True:
+                if deadline_state.global_deadline_observed:
+                    return
                 try:
-                    remaining = self._remaining(deadline)
+                    deadline_state.remaining()
                 except LinuxProviderError:
                     return
                 index = next_index
@@ -687,11 +729,22 @@ class LinuxInventoryCollector:
                     return
                 next_index += 1
                 interface = ordered[index]
+                if deadline_state.global_deadline_observed:
+                    return
                 try:
-                    async with asyncio.timeout(remaining):
-                        results[index] = await self._iw_details(interface, deadline)
-                except TimeoutError:
-                    results[index] = deadline_result()
+                    remaining = deadline_state.remaining()
+                except LinuxProviderError:
+                    return
+                timeout_scope = asyncio.timeout(remaining)
+                try:
+                    async with timeout_scope:
+                        results[index] = await self._iw_details(interface, deadline_state)
+                except TimeoutError as error:
+                    if timeout_scope.expired():
+                        deadline_state.observe_global_deadline()
+                        results[index] = deadline_result()
+                    else:
+                        results[index] = error
                 except Exception as error:
                     results[index] = error
 
@@ -734,62 +787,71 @@ class LinuxInventoryCollector:
         interfaces: tuple[str, ...],
         deadline: float,
     ) -> list[tuple[str, dict[str, str] | BaseException]]:
-        """Probe driver metadata with a fixed number of queue-backed workers."""
+        """Probe driver metadata with at most eight index-backed workers."""
 
-        ordered = tuple(sorted(interfaces))
+        ordered = tuple(interfaces)
         if not ordered:
             return []
 
         worker_count = min(_MAX_ETHTOOL_WORKERS, len(ordered))
-        queue: asyncio.Queue[tuple[int, str] | None] = asyncio.Queue(maxsize=worker_count)
         results: list[dict[str, str] | BaseException | None] = [None] * len(ordered)
+        next_index = 0
+        deadline_state = _InventoryDeadlineState(deadline)
 
         def deadline_error() -> LinuxProviderError:
-            return LinuxProviderError(
-                "linux.ethtool.driver",
-                "transient_failure",
-                "inventory total timeout expired",
-            )
+            return _inventory_deadline_error("linux.ethtool.driver")
+
+        try:
+            deadline_state.remaining()
+        except LinuxProviderError:
+            return [(interface, deadline_error()) for interface in ordered]
 
         async def worker() -> None:
+            nonlocal next_index
             while True:
-                item = await queue.get()
+                if deadline_state.global_deadline_observed:
+                    return
                 try:
-                    if item is None:
-                        return
-                    index, interface = item
-                    try:
-                        async with asyncio.timeout(self._remaining(deadline)):
-                            results[index] = await self._ethtool(interface, deadline)
-                    except TimeoutError:
+                    deadline_state.remaining()
+                except LinuxProviderError:
+                    return
+                index = next_index
+                if index >= len(ordered):
+                    return
+                next_index += 1
+                interface = ordered[index]
+                if deadline_state.global_deadline_observed:
+                    return
+                try:
+                    remaining = deadline_state.remaining()
+                except LinuxProviderError:
+                    return
+                timeout_scope = asyncio.timeout(remaining)
+                try:
+                    async with timeout_scope:
+                        results[index] = await self._ethtool(interface, deadline)
+                except TimeoutError as error:
+                    if timeout_scope.expired():
+                        deadline_state.observe_global_deadline()
                         results[index] = deadline_error()
-                    except Exception as error:
+                    else:
                         results[index] = error
-                finally:
-                    queue.task_done()
+                except Exception as error:
+                    results[index] = error
 
-        workers = [
-            asyncio.create_task(worker(), name=f"linux-ethtool-worker-{index}")
-            for index in range(worker_count)
-        ]
-        next_index = 0
+        workers: list[asyncio.Task[None]] = []
         try:
-            for index, interface in enumerate(ordered):
+            for index in range(worker_count):
+                coroutine = worker()
                 try:
-                    async with asyncio.timeout(self._remaining(deadline)):
-                        await queue.put((index, interface))
-                except (LinuxProviderError, TimeoutError):
-                    next_index = index
-                    break
-                next_index = index + 1
-
-            if next_index < len(ordered):
-                for index in range(next_index, len(ordered)):
-                    results[index] = deadline_error()
-
-            for _ in workers:
-                await queue.put(None)
-            await queue.join()
+                    task = asyncio.create_task(
+                        coroutine,
+                        name=f"linux-ethtool-worker-{index}",
+                    )
+                except BaseException:
+                    coroutine.close()
+                    raise
+                workers.append(task)
             await asyncio.gather(*workers)
         except BaseException:
             for task in workers:

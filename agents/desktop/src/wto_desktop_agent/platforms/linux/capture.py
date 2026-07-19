@@ -925,8 +925,15 @@ class FileCaptureJournal:
             or root_metadata.st_uid != expected_uid
             or stat.S_IMODE(root_metadata.st_mode) != 0o700
         ):
-            close_descriptor(self._root_descriptor, context="capture journal directory")
-            raise PermissionError("capture journal directory ownership or mode is unsafe")
+            error = PermissionError("capture journal directory ownership or mode is unsafe")
+            descriptor = self._root_descriptor
+            self._root_descriptor = -1
+            close_descriptor(
+                descriptor,
+                primary_error=error,
+                context="capture journal directory",
+            )
+            raise error
         self._expected_uid = expected_uid
         self._recovery_issues: list[str] = []
         try:
@@ -1567,8 +1574,15 @@ class CaptureWorkspace:
             or metadata.st_uid != expected_uid
             or stat.S_IMODE(metadata.st_mode) != 0o700
         ):
-            close_descriptor(self._root_descriptor, context="capture workspace")
-            raise PermissionError("capture workspace ownership or mode is unsafe")
+            error = PermissionError("capture workspace ownership or mode is unsafe")
+            descriptor = self._root_descriptor
+            self._root_descriptor = -1
+            close_descriptor(
+                descriptor,
+                primary_error=error,
+                context="capture workspace",
+            )
+            raise error
 
     @staticmethod
     def _validated_source_name(
