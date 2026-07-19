@@ -14,7 +14,9 @@ import win32serviceutil
 from wto_desktop_agent.application.capabilities import CapabilityRegistry, ManifestService
 from wto_desktop_agent.application.heartbeat import HeartbeatService
 from wto_desktop_agent.application.runtime import AgentRuntime
+from wto_desktop_agent.config import AgentSettings
 from wto_desktop_agent.infrastructure.backoff import BackoffPolicy
+from wto_desktop_agent.infrastructure.sqlite.store import SQLiteStore
 from wto_desktop_agent.logging import configure_logging
 from wto_desktop_agent.platforms.windows.acl import SERVICE_NAME, lookup_service_sid
 from wto_desktop_agent.platforms.windows.enrollment_ipc import (
@@ -85,13 +87,14 @@ class WtoAgentService(win32serviceutil.ServiceFramework):  # type: ignore[misc]
 
 
 async def _enroll_service(
-    config_path: Path, request: EnrollmentIpcRequest
+    settings: AgentSettings,
+    store: SQLiteStore,
+    request: EnrollmentIpcRequest,
 ) -> EnrollmentIpcResponse:
-    from wto_desktop_agent.cli import _components
+    from wto_desktop_agent.cli import _compose_components
 
-    _, _, store, transport, identity = _components(config_path)
+    _, transport, identity = _compose_components(settings, store)
     try:
-        store.initialize()
         result = await identity.enroll(
             token=request.enrollment_token, display_name=request.display_name
         )
@@ -117,10 +120,9 @@ async def run_service(
         settings.log_level,
         log_path=settings.state_dir.parent / "logs" / "agent.jsonl",
     )
-    store.initialize()
     while not stop_event.is_set() and not (store.identity() or {}).get("agent_id"):
         server = EnrollmentPipeServer(
-            lambda request: _enroll_service(config_path, request), lookup_service_sid()
+            lambda request: _enroll_service(settings, store, request), lookup_service_sid()
         )
         try:
             await asyncio.to_thread(server.serve_once, 5.0)
@@ -129,8 +131,6 @@ async def run_service(
     if stop_event.is_set():
         await transport.close()
         return
-    await transport.close()
-    settings, platform, store, transport, identity = _components(config_path)
 
     reconcile = getattr(platform.network_controller, "reconcile_incomplete", None)
     if reconcile is not None:

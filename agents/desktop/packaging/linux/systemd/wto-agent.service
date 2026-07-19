@@ -1,0 +1,50 @@
+[Unit]
+Description=WiFi Test Orchestrator Linux Endpoint Agent
+Documentation=file:/usr/share/doc/wto-agent/phase07/README.md
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=wto-agent
+Group=wto-agent
+ExecStart=/usr/bin/wto-agent --config /etc/wto-agent/wto-agent.toml run
+Restart=on-failure
+RestartSec=10s
+TimeoutStartSec=60s
+TimeoutStopSec=30s
+RuntimeDirectory=wto-agent
+RuntimeDirectoryMode=0700
+StateDirectory=wto-agent
+StateDirectoryMode=0700
+LogsDirectory=wto-agent
+LogsDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectKernelLogs=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+ProcSubset=pid
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+SystemCallArchitectures=native
+ReadWritePaths=/var/lib/wto-agent /var/log/wto-agent /run/wto-agent
+
+[Install]
+WantedBy=multi-user.target

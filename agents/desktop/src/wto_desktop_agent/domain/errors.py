@@ -6,6 +6,15 @@ class SecureStoreUnavailableError(AgentError):
     pass
 
 
+class MutationCommitIndeterminateError(SecureStoreUnavailableError):
+    """A secret mutation may be durable and must not be retried automatically."""
+
+    code = "mutation_commit_indeterminate"
+
+    def __init__(self) -> None:
+        super().__init__(self.code)
+
+
 class IdentityNotEnrolledError(AgentError):
     pass
 

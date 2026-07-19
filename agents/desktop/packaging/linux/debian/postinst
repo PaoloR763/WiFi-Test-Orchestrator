@@ -1,0 +1,132 @@
+#!/bin/sh
+set -eu
+
+ACTION=${1:-configure}
+case "$ACTION" in
+    abort-upgrade)
+        /usr/lib/wto-agent/package-lifecycle resume upgrade
+        exit 0
+        ;;
+    abort-remove)
+        /usr/lib/wto-agent/package-lifecycle resume remove
+        exit 0
+        ;;
+    abort-deconfigure)
+        /usr/lib/wto-agent/package-lifecycle resume deconfigure
+        exit 0
+        ;;
+    configure) ;;
+    *)
+        echo "unsupported postinst action: $ACTION" >&2
+        exit 2
+        ;;
+esac
+
+if ! getent group wto-agent >/dev/null; then
+    addgroup --system wto-agent
+fi
+if ! getent passwd wto-agent >/dev/null; then
+    adduser --system --ingroup wto-agent --home /var/lib/wto-agent --no-create-home --disabled-login wto-agent
+fi
+if ! getent group wto-capture >/dev/null; then
+    addgroup --system wto-capture
+fi
+if ! getent passwd wto-capture >/dev/null; then
+    adduser --system --ingroup wto-capture --home /var/lib/wto-agent-capture --no-create-home --disabled-login wto-capture
+fi
+
+if [ -L /etc/wto-agent ] || { [ -e /etc/wto-agent ] && [ ! -d /etc/wto-agent ]; }; then
+    echo "/etc/wto-agent is not a safe configuration directory" >&2
+    exit 5
+fi
+if [ -d /etc/wto-agent ] && [ "$(stat -c '%u:%g' -- /etc/wto-agent)" != "0:0" ]; then
+    echo "/etc/wto-agent has unsafe ownership" >&2
+    exit 5
+fi
+install -d -m 0751 -o root -g root /etc/wto-agent
+prepare_configuration() {
+    CONFIG_PATH=$1
+    CONFIG_GROUP=$2
+    if [ ! -e "$CONFIG_PATH" ] && [ ! -L "$CONFIG_PATH" ]; then
+        return
+    fi
+    if [ -L "$CONFIG_PATH" ] || [ ! -f "$CONFIG_PATH" ]; then
+        echo "$CONFIG_PATH is not a safe regular configuration file" >&2
+        exit 5
+    fi
+    if [ "$(stat -c '%u:%h' -- "$CONFIG_PATH")" != "0:1" ]; then
+        echo "$CONFIG_PATH has unsafe ownership or links" >&2
+        exit 5
+    fi
+    chown "root:$CONFIG_GROUP" -- "$CONFIG_PATH"
+    chmod 0640 -- "$CONFIG_PATH"
+    EXPECTED_GID=$(getent group "$CONFIG_GROUP" | cut -d: -f3)
+    if [ -z "$EXPECTED_GID" ] || \
+        [ "$(stat -c '%u:%g:%a:%h' -- "$CONFIG_PATH")" != "0:$EXPECTED_GID:640:1" ]; then
+        echo "$CONFIG_PATH permission verification failed" >&2
+        exit 5
+    fi
+}
+prepare_configuration /etc/wto-agent/wto-agent.toml wto-agent
+prepare_configuration /etc/wto-agent/capture-node.toml wto-capture
+
+(cd / && sha256sum --check --strict /usr/share/doc/wto-agent/SHA256SUMS)
+
+RUNTIME_ROOT=/usr/lib/wto-agent/runtime
+WHEELHOUSE=$RUNTIME_ROOT/wheelhouse
+LOCK=$RUNTIME_ROOT/requirements-linux-runtime.lock
+VENV=/usr/lib/wto-agent/venv
+if [ ! -d "$WHEELHOUSE" ] || [ ! -f "$LOCK" ]; then
+    echo "wto-agent offline runtime payload is incomplete" >&2
+    exit 4
+fi
+/usr/bin/python3 -m venv --clear "$VENV"
+"$VENV/bin/python" -m pip install \
+    --disable-pip-version-check --no-index --find-links "$WHEELHOUSE" --no-deps \
+    'pip==25.1.1'
+"$VENV/bin/python" -m pip install \
+    --disable-pip-version-check --no-index --find-links "$WHEELHOUSE" --no-deps \
+    --requirement "$LOCK"
+set -- "$WHEELHOUSE"/wto_desktop_agent-*.whl
+if [ "$#" -ne 1 ] || [ ! -f "$1" ]; then
+    echo "wto-agent wheel is missing or ambiguous" >&2
+    exit 4
+fi
+"$VENV/bin/python" -m pip install \
+    --disable-pip-version-check --no-index --find-links "$WHEELHOUSE" --no-deps "$1"
+"$VENV/bin/python" -m pip check
+
+prepare_owned_state_directory() {
+    STATE_PATH=$1
+    STATE_USER=$2
+    STATE_UID=$(id -u "$STATE_USER")
+    STATE_GID=$(id -g "$STATE_USER")
+    "$VENV/bin/python" -I -c \
+        'import sys; from pathlib import Path; from wto_desktop_agent.platforms.linux.state_directory import prepare_linux_state_directory; uid = int(sys.argv[2]); gid = int(sys.argv[3]); prepare_linux_state_directory(Path(sys.argv[1]), expected_uid=uid, expected_gid=gid, created_owner=(uid, gid))' \
+        "$STATE_PATH" "$STATE_UID" "$STATE_GID"
+}
+prepare_owned_state_directory /var/lib/wto-agent wto-agent
+prepare_owned_state_directory /var/lib/wto-agent/artifacts wto-agent
+prepare_owned_state_directory /var/lib/wto-agent-capture wto-capture
+prepare_owned_state_directory /var/lib/wto-agent-capture/artifacts wto-capture
+
+unset PYTHONPATH PYTHONHOME VIRTUAL_ENV
+set --
+if [ -f /etc/wto-agent/wto-agent.toml ]; then
+    set -- "$@" /etc/wto-agent/wto-agent.toml
+fi
+if [ -f /etc/wto-agent/capture-node.toml ]; then
+    set -- "$@" /etc/wto-agent/capture-node.toml
+fi
+"$VENV/bin/python" -I -c 'import sys; assert sys.version_info >= (3, 12); import pydantic; assert int(pydantic.__version__.split(".", 1)[0]) >= 2; import wto_desktop_agent; from pathlib import Path; from wto_desktop_agent.config import AgentSettings, load_settings; AgentSettings.model_validate({"server_url":"https://127.0.0.1","state_dir":"/tmp/wto-agent-settings-check"}); [load_settings(Path(value)) for value in sys.argv[1:]]' "$@"
+/usr/bin/wto-agent --help >/dev/null
+
+if [ -d /run/systemd/system ]; then
+    /usr/bin/systemctl daemon-reload
+fi
+if command -v deb-systemd-helper >/dev/null 2>&1; then
+    deb-systemd-helper enable wto-agent.service >/dev/null || true
+fi
+/usr/lib/wto-agent/package-lifecycle resume any
+
+exit 0

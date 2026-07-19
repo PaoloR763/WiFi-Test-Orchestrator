@@ -1,0 +1,6 @@
+Connected to aa:bb:cc:dd:ee:ff (on wlan0)
+	SSID: WTO Lab
+	freq: 5180
+	signal: -47 dBm
+	rx bitrate: 780.0 MBit/s HE-MCS 9 80MHz
+	tx bitrate: 650.0 MBit/s HE-MCS 7 80MHz

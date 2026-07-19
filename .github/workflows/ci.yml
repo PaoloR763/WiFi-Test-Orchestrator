@@ -1,4 +1,4 @@
-name: phase-06-ci
+name: phase-07-ci
 
 on:
   push:
@@ -92,6 +92,37 @@ jobs:
           docker run --rm --workdir /workspace/agents/desktop wto-desktop-agent-test mypy --platform win32 src
           docker run --rm --workdir /workspace/agents/desktop wto-desktop-agent-test pytest tests --cov=wto_desktop_agent --cov-report=term-missing
           docker run --rm wto-desktop-agent-test python scripts/test_desktop_wheel.py
+      - name: Linux adapter and Capture Node simulation
+        run: |
+          docker run --rm --workdir /workspace/agents/desktop wto-desktop-agent-test pytest tests/unit/linux -vv
+          python scripts/linux/validate_packaging.py
+          sh scripts/linux/validate-unit.sh
+      - name: Reproducible initial DEB build
+        env:
+          SOURCE_DATE_EPOCH: "0"
+          WTO_AGENT_VERSION: "0.1.0"
+        run: |
+          mkdir -p "$RUNNER_TEMP/deb-one" "$RUNNER_TEMP/deb-two" "$RUNNER_TEMP/deb-upgrade"
+          docker run --rm -e SOURCE_DATE_EPOCH -e WTO_AGENT_VERSION \
+            -v "$RUNNER_TEMP/deb-one:/out" wto-desktop-agent-test \
+            sh scripts/linux/build-deb.sh /out
+          docker run --rm -e SOURCE_DATE_EPOCH -e WTO_AGENT_VERSION \
+            -v "$RUNNER_TEMP/deb-two:/out" wto-desktop-agent-test \
+            sh scripts/linux/build-deb.sh /out
+          ARCH=$(dpkg --print-architecture)
+          cmp "$RUNNER_TEMP/deb-one/wto-agent_0.1.0_${ARCH}.deb" "$RUNNER_TEMP/deb-two/wto-agent_0.1.0_${ARCH}.deb"
+          dpkg-deb --info "$RUNNER_TEMP/deb-one/wto-agent_0.1.0_${ARCH}.deb"
+          dpkg-deb --contents "$RUNNER_TEMP/deb-one/wto-agent_0.1.0_${ARCH}.deb"
+          docker run --rm -e SOURCE_DATE_EPOCH -e WTO_AGENT_VERSION=0.1.1 \
+            -v "$RUNNER_TEMP/deb-upgrade:/out" wto-desktop-agent-test \
+            sh scripts/linux/build-deb.sh /out
+          docker build --file agents/desktop/packaging/linux/Dockerfile.runtime-test \
+            --tag wto-agent-deb-runtime-test .
+          docker run --rm --network none \
+            -v "$RUNNER_TEMP/deb-one:/deb-one:ro" \
+            -v "$RUNNER_TEMP/deb-upgrade:/deb-upgrade:ro" \
+            wto-agent-deb-runtime-test \
+            sh scripts/linux/test-deb-runtime.sh /deb-one /deb-upgrade
 
   desktop-agent-windows:
     name: Desktop agent Windows (Python ${{ matrix.python-version }})

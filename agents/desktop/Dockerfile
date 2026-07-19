@@ -6,12 +6,15 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /workspace
 COPY agents/desktop ./agents/desktop
 COPY shared/contracts ./shared/contracts
+COPY docs/phase07 ./docs/phase07
 COPY scripts/sync_desktop_contracts.py scripts/sync_desktop_contracts.py
 COPY scripts/test_desktop_wheel.py scripts/test_desktop_wheel.py
+COPY scripts/linux scripts/linux
 RUN python -m pip install --no-cache-dir --requirement agents/desktop/requirements-dev.lock \
     && mkdir -p /opt/wto-wheelhouse \
     && python -m pip wheel --requirement agents/desktop/requirements.lock \
        --wheel-dir /opt/wto-wheelhouse \
+    && python -m pip wheel --no-deps pip==25.1.1 --wheel-dir /opt/wto-wheelhouse \
     && python -m pip install --no-cache-dir --no-deps --editable ./agents/desktop
 
 CMD ["pytest", "tests"]

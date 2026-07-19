@@ -40,22 +40,39 @@ class AgentRuntime:
         self._stopping = asyncio.Event()
 
     async def start(self) -> None:
-        self.store.initialize()
         self.store.recover_interrupted()
         self.store.start_runtime(str(uuid4()))
         current = self.store.identity()
-        if current and current.get("rotation_state") not in {None, "none", "revoked"}:
-            await self.identity.rotate()
+        if current:
+            rotation_state = current.get("rotation_state")
+            has_revoked_references = any(
+                current.get(field)
+                for field in (
+                    "active_credential_ref",
+                    "pending_credential_ref",
+                    "previous_credential_ref",
+                )
+            )
+            if rotation_state == "revoked" and has_revoked_references:
+                await self.identity.mark_revoked_async()
+            elif rotation_state not in {None, "none", "revoked"}:
+                await self.identity.rotate()
 
     async def cycle(self) -> None:
-        credential = self.identity.active_credential()
+        credential = await self.identity.active_credential_async()
         try:
-            await self.manifests.ensure_published(credential)
+            refresh_after_tasks = False
+            if self.scheduler:
+                refresh_after_tasks = await self.manifests.ensure_fast_start_published(credential)
+            else:
+                await self.manifests.ensure_published(credential)
             await self.heartbeat.send(credential)
             if self.scheduler:
                 await self.scheduler.run_once()
+                if refresh_after_tasks:
+                    await self.manifests.ensure_published(credential)
         except AgentAuthenticationFailed:
-            self.identity.mark_revoked()
+            await self.identity.mark_revoked_async()
             raise
         finally:
             del credential

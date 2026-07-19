@@ -11,12 +11,52 @@ from wto_desktop_agent.application.capabilities import (
 )
 from wto_desktop_agent.application.heartbeat import HeartbeatService
 from wto_desktop_agent.application.identity import IdentityManager
-from wto_desktop_agent.domain.errors import SecureStoreUnavailableError, TransportError
+from wto_desktop_agent.domain.errors import (
+    MutationCommitIndeterminateError,
+    SecureStoreUnavailableError,
+    TransportError,
+)
 from wto_desktop_agent.infrastructure.simulated_transport import SimulatedAgentTransport
 from wto_desktop_agent.infrastructure.sqlite.store import SQLiteStore
 from wto_desktop_agent.platforms.simulated.adapter import SimulatedPlatformAdapter
 
 TOKEN = "wto_enr_1.10000000-0000-4000-8000-000000000001." + "T" * 43
+
+
+class CommitThenIndeterminateSecretStore:
+    def __init__(
+        self,
+        values: dict[str, str] | None = None,
+        *,
+        fail_put: bool = False,
+        fail_delete: bool = False,
+    ) -> None:
+        self._values = dict(values or {})
+        self.fail_put = fail_put
+        self.fail_delete = fail_delete
+        self.put_calls = 0
+        self.delete_calls = 0
+
+    @property
+    def secure(self) -> bool:
+        return False
+
+    def put(self, key: str, value: str) -> None:
+        self.put_calls += 1
+        self._values[key] = value
+        if self.fail_put:
+            self.fail_put = False
+            raise MutationCommitIndeterminateError()
+
+    def get(self, key: str) -> str | None:
+        return self._values.get(key)
+
+    def delete(self, key: str) -> None:
+        self.delete_calls += 1
+        self._values.pop(key, None)
+        if self.fail_delete:
+            self.fail_delete = False
+            raise MutationCommitIndeterminateError()
 
 
 async def enrolled(
@@ -87,6 +127,68 @@ async def test_enrollment_retry_reuses_exact_payload_and_key(tmp_path: Path) -> 
 
 
 @pytest.mark.asyncio
+async def test_enrollment_reconciles_a_prior_indeterminate_committed_put(
+    tmp_path: Path,
+) -> None:
+    store = SQLiteStore(tmp_path / "agent.sqlite3")
+    store.initialize()
+    platform = SimulatedPlatformAdapter()
+    secret_store = CommitThenIndeterminateSecretStore(fail_put=True)
+    platform._secrets = secret_store  # type: ignore[assignment]
+    transport = SimulatedAgentTransport()
+    manager = IdentityManager(
+        store,
+        platform,
+        transport,
+        FakeClock(),
+        allow_insecure_development_store=True,
+    )
+
+    with pytest.raises(MutationCommitIndeterminateError):
+        await manager.enroll(token=TOKEN, display_name="desktop test")
+    assert secret_store.put_calls == 1
+    await manager.enroll(token=TOKEN, display_name="desktop test")
+
+    assert secret_store.put_calls == 1
+    identity = store.identity()
+    assert identity is not None and identity["agent_id"] is not None
+
+
+@pytest.mark.asyncio
+async def test_rotation_reconciles_a_prior_indeterminate_committed_delete(
+    tmp_path: Path,
+) -> None:
+    store, platform, _, manager = await enrolled(tmp_path)
+    current = store.identity()
+    assert current is not None
+    old_ref = "credential.orphan.old"
+    platform.secret_store.put(old_ref, "old-secret")
+    store.update_identity(
+        {
+            "previous_credential_id": "old-id",
+            "previous_credential_ref": old_ref,
+            "rotation_state": "activated",
+        }
+    )
+    secret_store = CommitThenIndeterminateSecretStore(
+        platform.secret_store._values,
+        fail_delete=True,
+    )
+    platform._secrets = secret_store  # type: ignore[assignment]
+
+    with pytest.raises(MutationCommitIndeterminateError):
+        await manager.rotate()
+    assert store.identity()["rotation_state"] == "activated"  # type: ignore[index]
+    await manager.rotate()
+
+    assert secret_store.delete_calls == 1
+    final = store.identity()
+    assert final is not None
+    assert final["rotation_state"] == "none"
+    assert final["previous_credential_ref"] is None
+
+
+@pytest.mark.asyncio
 async def test_enrollment_fails_closed_without_secure_or_explicit_dev_store(
     tmp_path: Path,
 ) -> None:
@@ -111,6 +213,32 @@ async def test_confirmed_revocation_removes_all_local_secret_references(
     manager.mark_revoked()
     assert platform.secret_store.get(reference) is None
     assert store.identity()["rotation_state"] == "revoked"  # type: ignore[index]
+
+
+@pytest.mark.asyncio
+async def test_revocation_persists_terminal_state_before_indeterminate_secret_delete(
+    tmp_path: Path,
+) -> None:
+    store, platform, _, manager = await enrolled(tmp_path)
+    secret_store = CommitThenIndeterminateSecretStore(
+        platform.secret_store._values,
+        fail_delete=True,
+    )
+    platform._secrets = secret_store  # type: ignore[assignment]
+
+    with pytest.raises(MutationCommitIndeterminateError):
+        await manager.mark_revoked_async()
+    interrupted = store.identity()
+    assert interrupted is not None
+    assert interrupted["rotation_state"] == "revoked"
+    assert interrupted["revoked_at"] is not None
+    assert interrupted["active_credential_ref"] is not None
+
+    await manager.mark_revoked_async()
+    final = store.identity()
+    assert final is not None
+    assert final["active_credential_ref"] is None
+    assert secret_store.delete_calls == 1
 
 
 class CreateAcceptedThenDisconnected(SimulatedAgentTransport):

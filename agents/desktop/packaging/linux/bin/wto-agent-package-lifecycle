@@ -1,0 +1,242 @@
+#!/bin/sh
+set -eu
+
+STATE_DIR=/run/wto-agent-package-maintainer
+STATE_FILE=$STATE_DIR/upgrade-state
+TMP_STATE=
+
+cleanup_temporary_state() {
+    if [ -n "$TMP_STATE" ]; then
+        rm -f -- "$TMP_STATE"
+    fi
+}
+trap cleanup_temporary_state EXIT HUP INT TERM
+
+state_directory_exists() {
+    [ -e "$STATE_DIR" ] || [ -L "$STATE_DIR" ]
+}
+
+validate_state_directory() {
+    if [ -L "$STATE_DIR" ] || [ ! -d "$STATE_DIR" ]; then
+        echo "package lifecycle state directory is unsafe" >&2
+        exit 5
+    fi
+    METADATA=$(stat -c '%u:%g:%a' -- "$STATE_DIR")
+    if [ "$METADATA" != "0:0:700" ]; then
+        echo "package lifecycle state directory has unsafe ownership or mode" >&2
+        exit 5
+    fi
+}
+
+ensure_state_directory() {
+    if state_directory_exists; then
+        validate_state_directory
+        return
+    fi
+    (umask 077; mkdir -m 0700 -- "$STATE_DIR")
+    validate_state_directory
+    sync -f "$STATE_DIR"
+}
+
+state_file_exists() {
+    [ -e "$STATE_FILE" ] || [ -L "$STATE_FILE" ]
+}
+
+validate_state_file() {
+    validate_state_directory
+    if [ -L "$STATE_FILE" ] || [ ! -f "$STATE_FILE" ]; then
+        echo "package lifecycle state file is unsafe" >&2
+        exit 5
+    fi
+    METADATA=$(stat -c '%u:%g:%a:%h' -- "$STATE_FILE")
+    if [ "$METADATA" != "0:0:600:1" ]; then
+        echo "package lifecycle state file has unsafe ownership, mode, or links" >&2
+        exit 5
+    fi
+}
+
+read_state() {
+    validate_state_file
+    STATE_OPERATION=$(sed -n '2s/^operation=//p' "$STATE_FILE")
+    STATE_ENDPOINT=$(sed -n '3s/^endpoint=//p' "$STATE_FILE")
+    STATE_CAPTURE=$(sed -n '4s/^capture=//p' "$STATE_FILE")
+    case "$STATE_OPERATION" in
+        upgrade|remove|deconfigure) ;;
+        *) echo "package lifecycle operation is invalid" >&2; exit 5 ;;
+    esac
+    case "$STATE_ENDPOINT:$STATE_CAPTURE" in
+        active:active|active:inactive|inactive:active|inactive:inactive) ;;
+        *) echo "package lifecycle unit state is invalid" >&2; exit 5 ;;
+    esac
+    EXPECTED_STATE=$(printf 'version=1\noperation=%s\nendpoint=%s\ncapture=%s' \
+        "$STATE_OPERATION" "$STATE_ENDPOINT" "$STATE_CAPTURE")
+    ACTUAL_STATE=$(cat -- "$STATE_FILE")
+    if [ "$ACTUAL_STATE" != "$EXPECTED_STATE" ] || [ "$(wc -l < "$STATE_FILE")" -ne 4 ]; then
+        echo "package lifecycle state content is not canonical" >&2
+        exit 5
+    fi
+}
+
+systemd_is_running() {
+    [ -d /run/systemd/system ]
+}
+
+select_systemctl() {
+    if [ -x /usr/bin/systemctl ]; then
+        SYSTEMCTL=/usr/bin/systemctl
+    elif [ -x /bin/systemctl ]; then
+        SYSTEMCTL=/bin/systemctl
+    else
+        echo "systemctl is required while systemd is running" >&2
+        exit 5
+    fi
+}
+
+unit_active_state() {
+    UNIT=$1
+    if ! LOAD_STATE=$("$SYSTEMCTL" show "$UNIT" --property=LoadState --value); then
+        echo "unable to determine whether $UNIT is installed" >&2
+        exit 5
+    fi
+    case "$LOAD_STATE" in
+        loaded|masked|generated|transient|stub|merged) ;;
+        not-found) echo "$UNIT is not installed" >&2; exit 5 ;;
+        *) echo "unsafe LoadState '$LOAD_STATE' for $UNIT" >&2; exit 5 ;;
+    esac
+    if ! ACTIVE_STATE=$("$SYSTEMCTL" show "$UNIT" --property=ActiveState --value); then
+        echo "unable to determine whether $UNIT is active" >&2
+        exit 5
+    fi
+    case "$ACTIVE_STATE" in
+        active|inactive|failed) printf '%s\n' "$ACTIVE_STATE" ;;
+        *) echo "unsafe ActiveState '$ACTIVE_STATE' for $UNIT" >&2; exit 5 ;;
+    esac
+}
+
+publish_state() {
+    OPERATION=$1
+    ENDPOINT=$2
+    CAPTURE=$3
+    ensure_state_directory
+    if state_file_exists; then
+        validate_state_file
+        echo "a package lifecycle operation is already pending" >&2
+        exit 5
+    fi
+    TMP_STATE=$(mktemp "$STATE_DIR/.upgrade-state.XXXXXX")
+    chmod 0600 -- "$TMP_STATE"
+    printf 'version=1\noperation=%s\nendpoint=%s\ncapture=%s\n' \
+        "$OPERATION" "$ENDPOINT" "$CAPTURE" > "$TMP_STATE"
+    METADATA=$(stat -c '%u:%g:%a:%h' -- "$TMP_STATE")
+    if [ "$METADATA" != "0:0:600:1" ]; then
+        echo "temporary package lifecycle state is unsafe" >&2
+        exit 5
+    fi
+    sync -f "$TMP_STATE"
+    mv -T -- "$TMP_STATE" "$STATE_FILE"
+    TMP_STATE=
+    sync -f "$STATE_DIR"
+    read_state
+}
+
+quiesce() {
+    OPERATION=$1
+    case "$OPERATION" in
+        upgrade|remove|deconfigure) ;;
+        *) echo "invalid package lifecycle operation" >&2; exit 2 ;;
+    esac
+    if ! systemd_is_running; then
+        if state_directory_exists; then
+            validate_state_directory
+            if state_file_exists; then
+                echo "cannot reconcile pending package state without systemd" >&2
+                exit 5
+            fi
+        fi
+        return
+    fi
+    select_systemctl
+    ENDPOINT_STATE=$(unit_active_state wto-agent.service)
+    CAPTURE_STATE=$(unit_active_state wto-agent-capture.service)
+    ENDPOINT_WAS_ACTIVE=inactive
+    CAPTURE_WAS_ACTIVE=inactive
+    if [ "$ENDPOINT_STATE" = active ]; then ENDPOINT_WAS_ACTIVE=active; fi
+    if [ "$CAPTURE_STATE" = active ]; then CAPTURE_WAS_ACTIVE=active; fi
+    publish_state "$OPERATION" "$ENDPOINT_WAS_ACTIVE" "$CAPTURE_WAS_ACTIVE"
+    if [ "$ENDPOINT_WAS_ACTIVE" = active ]; then
+        "$SYSTEMCTL" stop wto-agent.service
+    fi
+    if [ "$CAPTURE_WAS_ACTIVE" = active ]; then
+        "$SYSTEMCTL" stop wto-agent-capture.service
+    fi
+    ENDPOINT_STATE=$(unit_active_state wto-agent.service)
+    CAPTURE_STATE=$(unit_active_state wto-agent-capture.service)
+    case "$ENDPOINT_STATE:$CAPTURE_STATE" in
+        inactive:inactive|inactive:failed|failed:inactive|failed:failed) ;;
+        *) echo "agent units did not reach a proven inactive state" >&2; exit 5 ;;
+    esac
+}
+
+resume() {
+    EXPECTED_OPERATION=$1
+    if ! state_directory_exists; then
+        return
+    fi
+    validate_state_directory
+    if ! state_file_exists; then
+        return
+    fi
+    read_state
+    if [ "$EXPECTED_OPERATION" != any ] && [ "$STATE_OPERATION" != "$EXPECTED_OPERATION" ]; then
+        echo "pending package lifecycle operation does not match recovery action" >&2
+        exit 5
+    fi
+    if ! systemd_is_running; then
+        echo "cannot resume pending package state without systemd" >&2
+        exit 5
+    fi
+    select_systemctl
+    "$SYSTEMCTL" daemon-reload
+    if [ "$STATE_ENDPOINT" = active ]; then
+        ENDPOINT_STATE=$(unit_active_state wto-agent.service)
+        if [ "$ENDPOINT_STATE" != active ]; then
+            "$SYSTEMCTL" start wto-agent.service
+        fi
+    fi
+    if [ "$STATE_CAPTURE" = active ]; then
+        CAPTURE_STATE=$(unit_active_state wto-agent-capture.service)
+        if [ "$CAPTURE_STATE" != active ]; then
+            "$SYSTEMCTL" start wto-agent-capture.service
+        fi
+    fi
+    if [ "$STATE_ENDPOINT" = active ] && \
+        [ "$(unit_active_state wto-agent.service)" != active ]; then
+        echo "wto-agent.service did not resume" >&2
+        exit 5
+    fi
+    if [ "$STATE_CAPTURE" = active ] && \
+        [ "$(unit_active_state wto-agent-capture.service)" != active ]; then
+        echo "wto-agent-capture.service did not resume" >&2
+        exit 5
+    fi
+    validate_state_file
+    rm -- "$STATE_FILE"
+    sync -f "$STATE_DIR"
+}
+
+ACTION=${1:-}
+case "$ACTION" in
+    quiesce)
+        quiesce "${2:-}"
+        ;;
+    resume)
+        case "${2:-}" in
+            any|upgrade|remove|deconfigure) resume "$2" ;;
+            *) echo "invalid package lifecycle recovery action" >&2; exit 2 ;;
+        esac
+        ;;
+    *)
+        echo "usage: wto-agent-package-lifecycle {quiesce|resume} ACTION" >&2
+        exit 2
+        ;;
+esac

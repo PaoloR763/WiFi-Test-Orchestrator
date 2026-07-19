@@ -11,11 +11,19 @@ from wto_desktop_agent.ports.platform import PlatformAdapter
 
 class DoctorService:
     def __init__(
-        self, settings: AgentSettings, store: SQLiteStore, platform: PlatformAdapter
+        self,
+        settings: AgentSettings,
+        store: SQLiteStore,
+        platform: PlatformAdapter | None,
+        *,
+        platform_error: Exception | None = None,
+        diagnostic_checks: tuple[DoctorCheck, ...] | None = None,
     ) -> None:
         self.settings = settings
         self.store = store
         self.platform = platform
+        self.platform_error = platform_error
+        self.diagnostic_checks = diagnostic_checks
 
     def run(self) -> list[DoctorCheck]:
         checks: list[DoctorCheck] = []
@@ -57,18 +65,62 @@ class DoctorService:
                 )
             )
         try:
-            self.store.initialize()
+            version = self.store.inspect_health()
             checks.append(
                 DoctorCheck(
                     name="sqlite",
                     status="OK",
-                    detail="SQLite schema and quick_check passed",
+                    detail=f"SQLite schema {version} and quick_check passed read-only validation",
+                )
+            )
+        except FileNotFoundError:
+            checks.append(
+                DoctorCheck(
+                    name="sqlite",
+                    status="BLOCKED",
+                    detail="SQLite database is absent; doctor did not initialize it",
+                )
+            )
+        except RuntimeError as error:
+            checks.append(
+                DoctorCheck(
+                    name="sqlite",
+                    status="BLOCKED",
+                    detail=f"SQLite read-only validation failed: {error}",
                 )
             )
         except Exception:
             checks.append(
-                DoctorCheck(name="sqlite", status="BLOCKED", detail="SQLite validation failed")
+                DoctorCheck(
+                    name="sqlite",
+                    status="BLOCKED",
+                    detail="SQLite read-only validation failed",
+                )
             )
+        if self.diagnostic_checks is not None:
+            checks.extend(self.diagnostic_checks)
+            return checks
+        if self.platform is None:
+            reason = (
+                type(self.platform_error).__name__
+                if self.platform_error is not None
+                else "platform_unavailable"
+            )
+            checks.extend(
+                (
+                    DoctorCheck(
+                        name="secret_store",
+                        status="BLOCKED",
+                        detail=f"Platform diagnostics unavailable ({reason})",
+                    ),
+                    DoctorCheck(
+                        name="service_manager",
+                        status="BLOCKED",
+                        detail=f"Platform diagnostics unavailable ({reason})",
+                    ),
+                )
+            )
+            return checks
         checks.append(self.platform.secret_store.doctor())
         checks.append(self.platform.service_manager.doctor())
         if self.platform.platform_id == "windows":

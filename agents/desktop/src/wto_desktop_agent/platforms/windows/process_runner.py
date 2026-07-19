@@ -85,7 +85,10 @@ class WindowsProcessRunner(AllowlistedProcessRunner):
         *,
         execution_token: object,
         deadline: float | None = None,
+        stdout_descriptor: int | None = None,
     ) -> asyncio.subprocess.Process:
+        if stdout_descriptor is not None:
+            raise RuntimeError("Windows process runner does not allow caller-owned stdout handles")
         absolute_deadline = math.inf if deadline is None else deadline
         self._ensure_before_deadline(absolute_deadline, "Job Object creation")
         job = self._create_job()

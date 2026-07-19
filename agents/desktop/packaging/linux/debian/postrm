@@ -1,0 +1,55 @@
+#!/bin/sh
+set -eu
+
+ACTION=${1:-}
+case "$ACTION" in
+    remove|purge|disappear)
+        rm -rf -- /usr/lib/wto-agent/venv
+        ;;
+    upgrade|failed-upgrade|abort-install|abort-upgrade|abort-remove|abort-deconfigure)
+        ;;
+    *)
+        echo "unsupported postrm action: ${ACTION:-missing}" >&2
+        exit 2
+        ;;
+esac
+
+if [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1; then
+    systemctl daemon-reload
+fi
+
+cleanup_package_lifecycle_state() {
+    STATE_DIR=/run/wto-agent-package-maintainer
+    STATE_FILE=$STATE_DIR/upgrade-state
+    if [ ! -e "$STATE_DIR" ] && [ ! -L "$STATE_DIR" ]; then
+        return
+    fi
+    if [ -L "$STATE_DIR" ] || [ ! -d "$STATE_DIR" ] || \
+        [ "$(stat -c '%u:%g:%a' -- "$STATE_DIR")" != "0:0:700" ]; then
+        echo "package lifecycle state directory is unsafe" >&2
+        exit 5
+    fi
+    if [ -e "$STATE_FILE" ] || [ -L "$STATE_FILE" ]; then
+        if [ -L "$STATE_FILE" ] || [ ! -f "$STATE_FILE" ] || \
+            [ "$(stat -c '%u:%g:%a:%h' -- "$STATE_FILE")" != "0:0:600:1" ]; then
+            echo "package lifecycle state file is unsafe" >&2
+            exit 5
+        fi
+        rm -- "$STATE_FILE"
+        sync -f "$STATE_DIR"
+    fi
+    rmdir -- "$STATE_DIR" 2>/dev/null || true
+}
+if [ "$ACTION" = remove ] || [ "$ACTION" = purge ] || [ "$ACTION" = disappear ]; then
+    cleanup_package_lifecycle_state
+fi
+
+if [ "$ACTION" = purge ]; then
+    rm -rf -- /var/lib/wto-agent /var/lib/wto-agent-capture /var/log/wto-agent /var/log/wto-agent-capture
+    deluser --system wto-agent >/dev/null 2>&1 || true
+    deluser --system wto-capture >/dev/null 2>&1 || true
+    delgroup --system wto-agent >/dev/null 2>&1 || true
+    delgroup --system wto-capture >/dev/null 2>&1 || true
+fi
+
+exit 0

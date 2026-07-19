@@ -1,0 +1,18 @@
+#!/bin/sh
+set -eu
+
+case "${1:-}" in
+    upgrade|remove|deconfigure)
+        /usr/lib/wto-agent/package-lifecycle quiesce "$1"
+        ;;
+    failed-upgrade)
+        echo "refusing failed-upgrade fallback after quiescence was not proven" >&2
+        exit 5
+        ;;
+    *)
+        echo "unsupported prerm action: ${1:-missing}" >&2
+        exit 2
+        ;;
+esac
+
+exit 0

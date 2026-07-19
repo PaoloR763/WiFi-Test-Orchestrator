@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import shutil
 import sqlite3
+import stat
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
@@ -12,6 +14,14 @@ from pathlib import Path
 from typing import Any, cast
 from uuid import uuid4
 
+from wto_desktop_agent.domain.artifact_paths import (
+    ARTIFACT_PRUNE_QUARANTINE_PATH_LENGTH,
+    ARTIFACT_PRUNE_QUARANTINE_PATH_PREFIX,
+    ARTIFACT_PRUNE_QUARANTINE_PREFIX_LENGTH,
+    ARTIFACT_PRUNE_QUARANTINE_TOKEN_LENGTH,
+    ARTIFACT_PRUNE_QUARANTINE_TOKEN_OFFSET,
+    is_artifact_prune_quarantine_path,
+)
 from wto_desktop_agent.domain.errors import DuplicateConflictError, StateConflictError
 from wto_desktop_agent.domain.models import LocalTaskEnvelope
 from wto_desktop_agent.domain.states import TaskState, ensure_transition
@@ -35,12 +45,21 @@ class SQLiteStore:
 
     def _connect(self, path: Path | None = None) -> sqlite3.Connection:
         connection = sqlite3.connect(path or self.path, timeout=5.0, isolation_level=None)
-        connection.row_factory = sqlite3.Row
-        connection.execute("PRAGMA foreign_keys=ON")
-        connection.execute("PRAGMA busy_timeout=5000")
-        connection.execute("PRAGMA synchronous=FULL")
-        if path is None:
-            connection.execute("PRAGMA journal_mode=WAL")
+        try:
+            connection.row_factory = sqlite3.Row
+            connection.execute("PRAGMA foreign_keys=ON")
+            connection.execute("PRAGMA busy_timeout=5000")
+            connection.execute("PRAGMA synchronous=FULL")
+            if path is None:
+                connection.execute("PRAGMA journal_mode=WAL")
+        except BaseException as primary_error:
+            try:
+                connection.close()
+            except BaseException as close_error:
+                primary_error.add_note(
+                    f"SQLite connection close also failed: {type(close_error).__name__}"
+                )
+            raise
         return connection
 
     @contextmanager
@@ -53,30 +72,373 @@ class SQLiteStore:
 
     def initialize(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        existed = self.path.exists()
-        backup = self.path.with_suffix(self.path.suffix + ".pre-migrate.bak")
-        if existed:
-            self.create_verified_backup(backup)
-        try:
-            with self.connection() as connection:
-                current_application_id = int(
-                    connection.execute("PRAGMA application_id").fetchone()[0]
+        with self._initialization_lock():
+            existed = self.path.exists()
+            migration_backup: Path | None = None
+            if existed:
+                application_id, version = self._inspect_database(
+                    self.path,
+                    allowed_versions={0, 1, SCHEMA_VERSION},
+                    allow_unclaimed=True,
                 )
-                if current_application_id not in (0, APPLICATION_ID):
-                    raise RuntimeError("SQLite application_id belongs to another application")
-                connection.execute(f"PRAGMA application_id={APPLICATION_ID}")
-                self._apply_migrations(connection)
-                check = str(connection.execute("PRAGMA quick_check").fetchone()[0])
-                if check != "ok":
-                    raise RuntimeError("SQLite quick_check failed")
-        except Exception:
-            if existed and backup.exists():
-                failed = self.path.with_name(f"{self.path.name}.migration-failed-{uuid4()}")
-                if self.path.exists():
-                    shutil.copy2(self.path, failed)
-                self._remove_sqlite_sidecars(self.path)
-                shutil.copy2(backup, self.path)
+                if version in {1, SCHEMA_VERSION} and application_id != APPLICATION_ID:
+                    raise RuntimeError(
+                        f"SQLite schema v{version} is not claimed by this application"
+                    )
+                if version == 1:
+                    migration_backup = self._ensure_pre_migration_backup()
+                elif version not in {0, SCHEMA_VERSION}:
+                    raise RuntimeError(f"unsupported SQLite schema version: {version}")
+            try:
+                with self.connection() as connection:
+                    current_application_id = int(
+                        connection.execute("PRAGMA application_id").fetchone()[0]
+                    )
+                    if current_application_id not in (0, APPLICATION_ID):
+                        raise RuntimeError("SQLite application_id belongs to another application")
+                    connection.execute(f"PRAGMA application_id={APPLICATION_ID}")
+                    self._apply_migrations(connection)
+                    check = str(connection.execute("PRAGMA quick_check").fetchone()[0])
+                    if check != "ok":
+                        raise RuntimeError("SQLite quick_check failed")
+            except Exception as error:
+                if migration_backup is not None:
+                    try:
+                        self._restore_pre_migration_backup(
+                            migration_backup,
+                            primary_error=error,
+                        )
+                    except BaseException as restore_error:
+                        error.add_note(
+                            "the immutable SQLite pre-migration backup could not be restored: "
+                            f"{type(restore_error).__name__}"
+                        )
+                raise
+
+    @contextmanager
+    def _initialization_lock(self) -> Iterator[None]:
+        lock_path = self.path.with_suffix(self.path.suffix + ".initialize.lock")
+        flags = os.O_RDWR | os.O_CREAT
+        flags |= getattr(os, "O_CLOEXEC", 0)
+        flags |= getattr(os, "O_NOFOLLOW", 0)
+        descriptor = os.open(lock_path, flags, 0o600)
+        locked = False
+        primary_error: BaseException | None = None
+        try:
+            metadata = os.fstat(descriptor)
+            if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
+                raise PermissionError("SQLite initialization lock is not a private regular file")
+            if os.name == "nt":
+                msvcrt_module = cast(Any, __import__("msvcrt"))
+
+                if metadata.st_size < 1:
+                    os.write(descriptor, b"\x00")
+                    os.fsync(descriptor)
+                os.lseek(descriptor, 0, os.SEEK_SET)
+                msvcrt_module.locking(descriptor, msvcrt_module.LK_LOCK, 1)
+            else:
+                fcntl_module = cast(Any, __import__("fcntl"))
+                fcntl_module.flock(descriptor, fcntl_module.LOCK_EX)
+            locked = True
+            yield
+        except BaseException as error:
+            primary_error = error
             raise
+        finally:
+            cleanup_error: BaseException | None = None
+            if locked:
+                try:
+                    if os.name == "nt":
+                        msvcrt_module = cast(Any, __import__("msvcrt"))
+
+                        os.lseek(descriptor, 0, os.SEEK_SET)
+                        msvcrt_module.locking(descriptor, msvcrt_module.LK_UNLCK, 1)
+                    else:
+                        fcntl_module = cast(Any, __import__("fcntl"))
+                        fcntl_module.flock(descriptor, fcntl_module.LOCK_UN)
+                except BaseException as unlock_error:
+                    if primary_error is None:
+                        cleanup_error = unlock_error
+                    else:
+                        primary_error.add_note(
+                            "SQLite initialization lock release also failed: "
+                            f"{type(unlock_error).__name__}"
+                        )
+                finally:
+                    try:
+                        os.close(descriptor)
+                    except BaseException as close_error:
+                        if primary_error is None:
+                            cleanup_error = cleanup_error or close_error
+                            if cleanup_error is not close_error:
+                                cleanup_error.add_note(
+                                    "SQLite initialization lock close also failed: "
+                                    f"{type(close_error).__name__}"
+                                )
+                        else:
+                            primary_error.add_note(
+                                "SQLite initialization lock close also failed: "
+                                f"{type(close_error).__name__}"
+                            )
+            else:
+                try:
+                    os.close(descriptor)
+                except BaseException as close_error:
+                    if primary_error is None:
+                        cleanup_error = close_error
+                    else:
+                        primary_error.add_note(
+                            "SQLite initialization lock close also failed: "
+                            f"{type(close_error).__name__}"
+                        )
+            if primary_error is None and cleanup_error is not None:
+                raise cleanup_error
+
+    @staticmethod
+    def _validate_regular_database(path: Path, *, purpose: str) -> os.stat_result:
+        try:
+            metadata = path.lstat()
+        except FileNotFoundError:
+            raise FileNotFoundError(f"{purpose} is unavailable") from None
+        if not stat.S_ISREG(metadata.st_mode):
+            raise ValueError(f"{purpose} must be a regular file without symlink traversal")
+        if metadata.st_nlink != 1:
+            raise ValueError(f"{purpose} must have exactly one filesystem link")
+        return metadata
+
+    @classmethod
+    def _inspect_database(
+        cls,
+        path: Path,
+        *,
+        allowed_versions: set[int],
+        allow_unclaimed: bool = False,
+        immutable_snapshot: bool = False,
+    ) -> tuple[int, int]:
+        before = cls._readonly_snapshot(path) if immutable_snapshot else None
+        if (
+            immutable_snapshot
+            and before is not None
+            and any(identity is not None for _name, identity in before[1:])
+        ):
+            raise RuntimeError(
+                "SQLite WAL/SHM sidecars indicate a live or transient snapshot; "
+                "read-only inspection is inconclusive"
+            )
+        cls._validate_regular_database(path, purpose="SQLite database")
+        absolute = path.absolute()
+        immutable_query = "&immutable=1" if immutable_snapshot else ""
+        connection = sqlite3.connect(
+            f"{absolute.as_uri()}?mode=ro{immutable_query}&cache=private",
+            uri=True,
+            timeout=1.0,
+            isolation_level=None,
+        )
+        try:
+            connection.execute("PRAGMA query_only=ON")
+            if int(connection.execute("PRAGMA query_only").fetchone()[0]) != 1:
+                raise RuntimeError("SQLite query_only could not be enabled")
+            if str(connection.execute("PRAGMA quick_check(1)").fetchone()[0]) != "ok":
+                raise RuntimeError("SQLite quick_check failed")
+            application_id = int(connection.execute("PRAGMA application_id").fetchone()[0])
+            if application_id != APPLICATION_ID and not (allow_unclaimed and application_id == 0):
+                raise RuntimeError("SQLite database belongs to another application")
+            version = int(connection.execute("PRAGMA user_version").fetchone()[0])
+            if version not in allowed_versions:
+                raise RuntimeError(f"unsupported SQLite schema version: {version}")
+            return application_id, version
+        finally:
+            connection.close()
+            after = cls._readonly_snapshot(path) if immutable_snapshot else None
+            if immutable_snapshot and before != after:
+                raise RuntimeError(
+                    "SQLite changed during read-only inspection; snapshot is inconclusive"
+                )
+
+    @staticmethod
+    def _readonly_snapshot(path: Path) -> tuple[tuple[str, tuple[int, ...] | None], ...]:
+        result: list[tuple[str, tuple[int, ...] | None]] = []
+        for candidate in (
+            path,
+            path.with_name(path.name + "-wal"),
+            path.with_name(path.name + "-shm"),
+        ):
+            try:
+                metadata = candidate.lstat()
+            except FileNotFoundError:
+                identity = None
+            else:
+                identity = (
+                    int(metadata.st_dev),
+                    int(metadata.st_ino),
+                    int(metadata.st_uid),
+                    stat.S_IFMT(metadata.st_mode),
+                    stat.S_IMODE(metadata.st_mode),
+                    int(metadata.st_nlink),
+                    int(metadata.st_size),
+                    int(metadata.st_mtime_ns),
+                    int(metadata.st_ctime_ns),
+                )
+            result.append((candidate.name, identity))
+        return tuple(result)
+
+    def inspect_health(self) -> int:
+        """Validate an existing current database without creating or migrating it."""
+
+        _, version = self._inspect_database(
+            self.path,
+            allowed_versions={SCHEMA_VERSION},
+            immutable_snapshot=True,
+        )
+        return version
+
+    @classmethod
+    def _logical_fingerprint(cls, path: Path) -> str:
+        cls._inspect_database(path, allowed_versions={1})
+        connection = sqlite3.connect(f"{path.absolute().as_uri()}?mode=ro", uri=True)
+        result = hashlib.sha256()
+        try:
+            for statement in connection.iterdump():
+                result.update(statement.encode("utf-8"))
+                result.update(b"\n")
+        finally:
+            connection.close()
+        return result.hexdigest()
+
+    @staticmethod
+    def _fsync_file(path: Path) -> None:
+        descriptor = os.open(path, os.O_RDWR | getattr(os, "O_CLOEXEC", 0))
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+
+    @staticmethod
+    def _fsync_directory(path: Path) -> None:
+        if os.name == "nt":
+            return
+        descriptor = os.open(
+            path,
+            os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_CLOEXEC", 0),
+        )
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+
+    def _backup_candidate(
+        self,
+        destination: Path,
+        *,
+        allowed_versions: set[int],
+        source_path: Path | None = None,
+    ) -> Path:
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        candidate = destination.with_name(f".{destination.name}.candidate-{uuid4().hex}")
+        flags = os.O_RDWR | os.O_CREAT | os.O_EXCL
+        flags |= getattr(os, "O_CLOEXEC", 0)
+        flags |= getattr(os, "O_NOFOLLOW", 0)
+        descriptor = os.open(candidate, flags, 0o600)
+        os.close(descriptor)
+        try:
+            source = self._connect(source_path or self.path)
+            target: sqlite3.Connection | None = None
+            operation_error: BaseException | None = None
+            try:
+                target = self._connect(candidate)
+                source.backup(target)
+                result = str(target.execute("PRAGMA quick_check").fetchone()[0])
+                if result != "ok":
+                    raise RuntimeError("SQLite backup verification failed")
+            except BaseException as error:
+                operation_error = error
+                raise
+            finally:
+                close_error: BaseException | None = None
+                for connection in (target, source):
+                    if connection is None:
+                        continue
+                    try:
+                        connection.close()
+                    except BaseException as error:
+                        if operation_error is not None:
+                            operation_error.add_note(
+                                "SQLite backup connection close also failed: "
+                                f"{type(error).__name__}"
+                            )
+                        elif close_error is None:
+                            close_error = error
+                        else:
+                            close_error.add_note(
+                                "SQLite backup connection close also failed: "
+                                f"{type(error).__name__}"
+                            )
+                if operation_error is None and close_error is not None:
+                    raise close_error
+            self._fsync_file(candidate)
+            self._inspect_database(candidate, allowed_versions=allowed_versions)
+            return candidate
+        except BaseException:
+            candidate.unlink(missing_ok=True)
+            raise
+
+    def _ensure_pre_migration_backup(self) -> Path:
+        backup = self.path.with_suffix(self.path.suffix + ".pre-migrate.bak")
+        candidate = self._backup_candidate(backup, allowed_versions={1})
+        try:
+            if backup.exists() or backup.is_symlink():
+                self._validate_regular_database(backup, purpose="SQLite pre-migration backup")
+                self._inspect_database(backup, allowed_versions={1})
+                if self._logical_fingerprint(backup) != self._logical_fingerprint(candidate):
+                    raise RuntimeError(
+                        "SQLite pre-migration backup does not match the live schema v1 database"
+                    )
+                return backup
+            try:
+                os.link(candidate, backup, follow_symlinks=False)
+            except FileExistsError as error:
+                self._validate_regular_database(backup, purpose="SQLite pre-migration backup")
+                self._inspect_database(backup, allowed_versions={1})
+                if self._logical_fingerprint(backup) != self._logical_fingerprint(candidate):
+                    raise RuntimeError(
+                        "SQLite pre-migration backup publication conflict"
+                    ) from error
+                return backup
+            self._fsync_file(backup)
+            candidate.unlink()
+            self._fsync_directory(backup.parent)
+            self._validate_regular_database(backup, purpose="SQLite pre-migration backup")
+            return backup
+        finally:
+            candidate.unlink(missing_ok=True)
+
+    def _restore_pre_migration_backup(
+        self,
+        backup: Path,
+        *,
+        primary_error: BaseException,
+    ) -> None:
+        self._inspect_database(backup, allowed_versions={1})
+        failed = self.path.with_name(f"{self.path.name}.migration-failed-{uuid4()}")
+        if self.path.exists():
+            try:
+                shutil.copy2(self.path, failed)
+            except BaseException as snapshot_error:
+                primary_error.add_note(
+                    "the failed SQLite migration snapshot could not be retained: "
+                    f"{type(snapshot_error).__name__}"
+                )
+        restored = self._backup_candidate(
+            self.path,
+            allowed_versions={1},
+            source_path=backup,
+        )
+        try:
+            self._remove_sqlite_sidecars(self.path)
+            os.replace(restored, self.path)
+            self._fsync_directory(self.path.parent)
+        finally:
+            restored.unlink(missing_ok=True)
 
     @staticmethod
     def _remove_sqlite_sidecars(path: Path) -> None:
@@ -115,35 +477,76 @@ class SQLiteStore:
             raise RuntimeError(f"unsupported SQLite schema version: {user_version}")
 
     def create_verified_backup(self, destination: Path) -> None:
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        destination.unlink(missing_ok=True)
-        self._remove_sqlite_sidecars(destination)
-        with self.connection() as source, self._connect(destination) as target:
-            source.backup(target)
-            result = str(target.execute("PRAGMA quick_check").fetchone()[0])
-            if result != "ok":
-                destination.unlink(missing_ok=True)
-                raise RuntimeError("SQLite backup verification failed")
+        source = self.path.absolute()
+        destination = destination.absolute()
+        pre_migration_backup = self.path.with_suffix(
+            self.path.suffix + ".pre-migrate.bak"
+        ).absolute()
+        if source == destination:
+            raise ValueError("SQLite backup and destination must differ")
+        if destination.resolve(strict=False) == pre_migration_backup.resolve(strict=False):
+            raise ValueError("SQLite pre-migration backup is a reserved immutable destination")
+        self._validate_regular_database(source, purpose="SQLite source database")
+        if destination.exists() or destination.is_symlink():
+            self._validate_regular_database(destination, purpose="SQLite backup destination")
+            if os.path.samefile(source, destination):
+                raise ValueError("SQLite backup and destination must differ")
+            if pre_migration_backup.exists() and os.path.samefile(
+                pre_migration_backup, destination
+            ):
+                raise ValueError("SQLite pre-migration backup is a reserved immutable destination")
+        candidate = self._backup_candidate(destination, allowed_versions={1, SCHEMA_VERSION})
+        previous: Path | None = None
+        published = False
+        preserve_previous = False
+        try:
+            if destination.exists():
+                previous = destination.with_name(f".{destination.name}.previous-{uuid4().hex}")
+                os.link(destination, previous, follow_symlinks=False)
+            try:
+                os.replace(candidate, destination)
+                published = True
+                self._fsync_file(destination)
+                self._fsync_directory(destination.parent)
+            except BaseException as error:
+                if previous is not None:
+                    try:
+                        os.replace(previous, destination)
+                        self._fsync_file(destination)
+                        self._fsync_directory(destination.parent)
+                        published = False
+                    except BaseException as restore_error:
+                        preserve_previous = True
+                        error.add_note(
+                            "the previous SQLite backup destination could not be restored: "
+                            f"{type(restore_error).__name__}"
+                        )
+                raise
+        finally:
+            candidate.unlink(missing_ok=True)
+            if previous is not None and previous.exists() and not preserve_previous:
+                try:
+                    previous.unlink()
+                    if published:
+                        self._fsync_directory(destination.parent)
+                except OSError:
+                    # Publication is already durable. Preserve the prior inode
+                    # under its private name rather than turning success into
+                    # an ambiguous backup result or deleting data online.
+                    pass
 
     @staticmethod
     def verify_backup(path: Path) -> int:
-        resolved = path.resolve(strict=True)
-        connection = sqlite3.connect(f"{resolved.as_uri()}?mode=ro", uri=True)
-        try:
-            if str(connection.execute("PRAGMA quick_check").fetchone()[0]) != "ok":
-                raise RuntimeError("SQLite backup quick_check failed")
-            if int(connection.execute("PRAGMA application_id").fetchone()[0]) != APPLICATION_ID:
-                raise RuntimeError("SQLite backup belongs to another application")
-            version = int(connection.execute("PRAGMA user_version").fetchone()[0])
-            if version not in {1, SCHEMA_VERSION}:
-                raise RuntimeError("SQLite backup schema is unsupported")
-            return version
-        finally:
-            connection.close()
+        _, version = SQLiteStore._inspect_database(
+            path,
+            allowed_versions={1, SCHEMA_VERSION},
+        )
+        return version
 
     def restore_verified_backup(self, source: Path) -> int:
-        source = source.resolve(strict=True)
-        if self.path.exists() and source.samefile(self.path):
+        source = source.absolute()
+        self._validate_regular_database(source, purpose="SQLite restore source")
+        if self.path.exists() and os.path.samefile(source, self.path):
             raise ValueError("SQLite backup and destination must differ")
         version = self.verify_backup(source)
         rollback = self.path.with_suffix(self.path.suffix + ".pre-restore.bak")
@@ -295,6 +698,18 @@ class SQLiteStore:
         with self.connection() as connection:
             row = connection.execute("SELECT * FROM agent_identity WHERE singleton=1").fetchone()
             return dict(row) if row else None
+
+    def identity_immutable(self) -> dict[str, Any] | None:
+        """Read restart-stable identity without creating SQLite WAL/SHM state."""
+
+        uri = f"{self.path.absolute().as_uri()}?mode=ro&immutable=1"
+        connection = sqlite3.connect(uri, uri=True)
+        connection.row_factory = sqlite3.Row
+        try:
+            row = connection.execute("SELECT * FROM agent_identity WHERE singleton=1").fetchone()
+            return dict(row) if row else None
+        finally:
+            connection.close()
 
     def ensure_identity(
         self,
@@ -732,6 +1147,223 @@ class SQLiteStore:
                     utc_now(),
                 ),
             )
+
+    def queue_artifact(
+        self,
+        *,
+        task_id: str,
+        relative_path: str,
+        media_type: str,
+        payload: dict[str, Any],
+    ) -> None:
+        self.ensure_artifact_queued(
+            task_id=task_id,
+            relative_path=relative_path,
+            media_type=media_type,
+            payload=payload,
+        )
+
+    def ensure_artifact_queued(
+        self,
+        *,
+        task_id: str,
+        relative_path: str,
+        media_type: str,
+        payload: dict[str, Any],
+    ) -> bool:
+        relative = Path(relative_path)
+        if relative.is_absolute() or not relative.parts or ".." in relative.parts:
+            raise ValueError("artifact path must be a safe relative path")
+        encoded = canonical_json(payload).decode("utf-8")
+        with self.connection() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            existing = connection.execute(
+                "SELECT task_id,relative_path,media_type,size_bytes,sha256,payload "
+                "FROM pending_uploads WHERE artifact_id=?",
+                (str(payload["artifact_id"]),),
+            ).fetchone()
+            if existing is not None:
+                expected = (
+                    task_id,
+                    relative.as_posix(),
+                    media_type,
+                    int(payload["size_bytes"]),
+                    str(payload["sha256"]),
+                    encoded,
+                )
+                observed = (
+                    str(existing["task_id"]),
+                    str(existing["relative_path"]),
+                    str(existing["media_type"]),
+                    int(existing["size_bytes"]),
+                    str(existing["sha256"]),
+                    str(existing["payload"]),
+                )
+                if observed != expected:
+                    connection.rollback()
+                    raise RuntimeError("artifact idempotency conflict")
+                connection.commit()
+                return False
+            connection.execute(
+                """INSERT INTO pending_uploads(
+                upload_id,artifact_id,task_id,relative_path,media_type,size_bytes,sha256,
+                payload,payload_hash,state,next_attempt_at
+                ) VALUES(?,?,?,?,?,?,?,?,?,'pending',?)""",
+                (
+                    str(uuid4()),
+                    str(payload["artifact_id"]),
+                    task_id,
+                    relative.as_posix(),
+                    media_type,
+                    int(payload["size_bytes"]),
+                    str(payload["sha256"]),
+                    encoded,
+                    digest(payload),
+                    utc_now(),
+                ),
+            )
+            connection.commit()
+            return True
+
+    def artifact_upload(self, artifact_id: str) -> dict[str, Any] | None:
+        with self.connection() as connection:
+            row = connection.execute(
+                "SELECT * FROM pending_uploads WHERE artifact_id=?",
+                (artifact_id,),
+            ).fetchone()
+            return None if row is None else dict(row)
+
+    def artifact_uploads(
+        self,
+        *,
+        states: frozenset[str] = frozenset({"pending", "in_flight", "confirmed", "failed"}),
+        limit: int = 10_000,
+    ) -> list[dict[str, Any]]:
+        if limit <= 0 or limit > 10_000:
+            raise ValueError("artifact upload query limit must be between 1 and 10000")
+        allowed_states = frozenset({"pending", "in_flight", "confirmed", "failed"})
+        if not states or not states <= allowed_states:
+            raise ValueError("artifact upload query states are invalid")
+        ordered_states = tuple(sorted(states))
+        placeholders = ",".join("?" for _ in ordered_states)
+        query = (
+            f"SELECT * FROM pending_uploads WHERE state IN ({placeholders}) "  # noqa: S608
+            "ORDER BY upload_id LIMIT ?"
+        )
+        parameters: tuple[object, ...] = (*ordered_states, limit)
+        with self.connection() as connection:
+            return [dict(row) for row in connection.execute(query, parameters)]
+
+    def artifact_upload_count(self, *, states: frozenset[str]) -> int:
+        allowed_states = frozenset({"pending", "in_flight", "confirmed", "failed"})
+        if not states or not states <= allowed_states:
+            raise ValueError("artifact upload count states are invalid")
+        ordered_states = tuple(sorted(states))
+        placeholders = ",".join("?" for _ in ordered_states)
+        with self.connection() as connection:
+            row = connection.execute(
+                f"SELECT COUNT(*) FROM pending_uploads WHERE state IN ({placeholders})",  # noqa: S608
+                ordered_states,
+            ).fetchone()
+            assert row is not None
+            return int(row[0])
+
+    def confirmed_artifacts_for_pruning(
+        self,
+        *,
+        confirmed_before: str | None,
+        retain_count: int | None,
+        retain_bytes: int | None,
+        limit: int,
+    ) -> list[dict[str, Any]]:
+        if limit <= 0 or limit > 10_000:
+            raise ValueError("artifact pruning query limit must be between 1 and 10000")
+        if retain_count is not None and retain_count < 0:
+            raise ValueError("artifact retain count cannot be negative")
+        if retain_bytes is not None and retain_bytes < 0:
+            raise ValueError("artifact retain bytes cannot be negative")
+        with self.connection() as connection:
+            rows = connection.execute(
+                """WITH ranked AS (
+                    SELECT pending_uploads.*,
+                    ROW_NUMBER() OVER (
+                        ORDER BY COALESCE(confirmed_at,next_attempt_at) DESC,upload_id DESC
+                    ) AS keep_position,
+                    SUM(size_bytes) OVER (
+                        ORDER BY COALESCE(confirmed_at,next_attempt_at) DESC,upload_id DESC
+                        ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+                    ) AS keep_bytes
+                    FROM pending_uploads
+                    WHERE state='confirmed' AND NOT (
+                        typeof(relative_path)='text'
+                        AND length(CAST(relative_path AS BLOB))=?
+                        AND instr(CAST(relative_path AS BLOB),X'00')=0
+                        AND substr(CAST(relative_path AS BLOB),1,?) = CAST(? AS BLOB)
+                        AND CAST(
+                            substr(CAST(relative_path AS BLOB),?,?) AS TEXT
+                        ) NOT GLOB '*[^0-9a-f]*'
+                    )
+                )
+                SELECT * FROM ranked
+                WHERE ((? IS NOT NULL AND COALESCE(confirmed_at,next_attempt_at) < ?)
+                    OR (? IS NOT NULL AND keep_position > ?)
+                    OR (? IS NOT NULL AND keep_bytes > ?))
+                ORDER BY COALESCE(confirmed_at,next_attempt_at),upload_id LIMIT ?""",
+                (
+                    ARTIFACT_PRUNE_QUARANTINE_PATH_LENGTH,
+                    ARTIFACT_PRUNE_QUARANTINE_PREFIX_LENGTH,
+                    ARTIFACT_PRUNE_QUARANTINE_PATH_PREFIX,
+                    ARTIFACT_PRUNE_QUARANTINE_TOKEN_OFFSET,
+                    ARTIFACT_PRUNE_QUARANTINE_TOKEN_LENGTH,
+                    confirmed_before,
+                    confirmed_before,
+                    retain_count,
+                    retain_count,
+                    retain_bytes,
+                    retain_bytes,
+                    limit,
+                ),
+            ).fetchall()
+            return [dict(row) for row in rows]
+
+    def delete_confirmed_artifact(self, upload_id: str) -> bool:
+        with self.connection() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            cursor = connection.execute(
+                "DELETE FROM pending_uploads WHERE upload_id=? AND state='confirmed'",
+                (upload_id,),
+            )
+            connection.commit()
+            return cursor.rowcount == 1
+
+    def update_confirmed_artifact_path(
+        self,
+        upload_id: str,
+        *,
+        expected_relative_path: str,
+        quarantine_relative_path: str,
+    ) -> bool:
+        for value in (expected_relative_path, quarantine_relative_path):
+            relative = Path(value)
+            if (
+                relative.is_absolute()
+                or len(relative.parts) != 2
+                or relative.parts[0] != "outbox"
+                or relative.parts[1] in {"", ".", ".."}
+                or relative.as_posix() != value
+            ):
+                raise ValueError("artifact quarantine path must be a safe outbox path")
+        if not is_artifact_prune_quarantine_path(quarantine_relative_path):
+            raise ValueError("artifact quarantine path has an invalid prefix")
+        with self.connection() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            cursor = connection.execute(
+                "UPDATE pending_uploads SET relative_path=? "
+                "WHERE upload_id=? AND state='confirmed' AND relative_path=?",
+                (quarantine_relative_path, upload_id, expected_relative_path),
+            )
+            connection.commit()
+            return cursor.rowcount == 1
 
     def pending_outbox(self, table: str) -> list[dict[str, Any]]:
         if table not in {"outbox_progress", "outbox_results", "pending_uploads"}:

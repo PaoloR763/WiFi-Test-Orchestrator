@@ -12,6 +12,8 @@ dependencies = [
   "httpx==0.28.1",
   "jsonschema==4.25.1",
   "pydantic==2.11.7",
+  "cryptography==49.0.0; sys_platform == 'linux'",
+  "dbus-next==0.2.3; sys_platform == 'linux'",
   "pywin32==311; sys_platform == 'win32'",
   "secretstorage==3.3.3; sys_platform == 'linux'",
 ]
@@ -70,6 +72,8 @@ module = [
   "jsonschema.*",
   "secretstorage",
   "secretstorage.*",
+  "dbus_next",
+  "dbus_next.*",
   "servicemanager",
   "pywintypes",
   "win32api",
@@ -98,7 +102,7 @@ disable_error_code = ["attr-defined"]
 [tool.pytest.ini_options]
 addopts = "-ra --strict-markers"
 testpaths = ["tests"]
-pythonpath = ["src"]
+pythonpath = ["src", "tests/support"]
 markers = [
   "integration: requires the Phase 04 backend dependencies",
   "windows: requires native Windows",

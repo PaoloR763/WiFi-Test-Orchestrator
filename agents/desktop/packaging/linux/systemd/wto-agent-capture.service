@@ -1,0 +1,52 @@
+[Unit]
+Description=WiFi Test Orchestrator Capture Node
+Documentation=file:/usr/share/doc/wto-agent/phase07/capture-node-runbook.md
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=wto-capture
+Group=wto-capture
+ExecStart=/usr/bin/wto-agent --config /etc/wto-agent/capture-node.toml run
+Restart=on-failure
+RestartSec=10s
+TimeoutStartSec=60s
+TimeoutStopSec=45s
+KillMode=control-group
+Delegate=yes
+RuntimeDirectory=wto-agent-capture
+RuntimeDirectoryMode=0700
+StateDirectory=wto-agent-capture
+StateDirectoryMode=0700
+LogsDirectory=wto-agent-capture
+LogsDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=no
+ProtectKernelLogs=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+ProcSubset=pid
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK AF_PACKET
+SystemCallArchitectures=native
+ReadWritePaths=/var/lib/wto-agent-capture /var/log/wto-agent-capture /run/wto-agent-capture
+
+[Install]
+WantedBy=multi-user.target

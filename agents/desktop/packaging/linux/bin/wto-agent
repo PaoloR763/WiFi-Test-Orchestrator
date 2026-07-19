@@ -1,0 +1,9 @@
+#!/bin/sh
+set -eu
+PRIVATE_PYTHON=/usr/lib/wto-agent/venv/bin/python
+if [ ! -x "$PRIVATE_PYTHON" ]; then
+    echo "wto-agent private runtime is unavailable" >&2
+    exit 126
+fi
+unset PYTHONPATH PYTHONHOME VIRTUAL_ENV
+exec "$PRIVATE_PYTHON" -I -m wto_desktop_agent "$@"
