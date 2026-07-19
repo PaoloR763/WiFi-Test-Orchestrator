@@ -57,6 +57,7 @@ class PersistentTaskMachine(RuleBasedStateMachine):
 TestPersistentTaskMachine = PersistentTaskMachine.TestCase
 TestPersistentTaskMachine.settings = settings(
     database=None,
+    deadline=None,
     max_examples=20,
     stateful_step_count=10,
     suppress_health_check=[HealthCheck.too_slow],
