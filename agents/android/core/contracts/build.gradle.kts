@@ -1,7 +1,9 @@
+import org.gradle.api.tasks.PathSensitivity
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
     alias(libs.plugins.kotlin.jvm)
+    alias(libs.plugins.kotlin.serialization)
 }
 
 java {
@@ -16,4 +18,25 @@ kotlin {
     compilerOptions {
         jvmTarget.set(JvmTarget.JVM_17)
     }
+}
+
+dependencies {
+    implementation(libs.kotlinx.serialization.core)
+    testImplementation(libs.kotlinx.serialization.json)
+    testImplementation(kotlin("test"))
+}
+
+val canonicalContractExamples =
+    rootProject.layout.projectDirectory.dir("../../shared/contracts/examples")
+
+tasks.test {
+    useJUnitPlatform()
+    inputs
+        .dir(canonicalContractExamples)
+        .withPropertyName("canonicalContractExamples")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
+    systemProperty(
+        "wto.contract.examples",
+        canonicalContractExamples.asFile.absolutePath,
+    )
 }

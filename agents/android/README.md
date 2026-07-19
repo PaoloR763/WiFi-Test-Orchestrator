@@ -1,8 +1,9 @@
 # Android agent
 
-Este directorio contiene exclusivamente el bootstrap reproducible C01 del
-agente Android. El proyecto no define todavía pantallas, actividades, servicios,
-permisos, persistencia, red, contratos de aplicación ni capabilities.
+Este directorio contiene el bootstrap reproducible C01 y los contratos wire de
+enrolamiento C02A del agente Android. El proyecto no define todavía pantallas,
+actividades, servicios, permisos, persistencia, red, dominio funcional ni
+capabilities.
 
 ## Toolchain
 
@@ -31,13 +32,34 @@ compatible.
 ## Módulos
 
 - `:app`: ensamblado Android mínimo; puede depender de todos los módulos core.
-- `:core:contracts`: módulo Kotlin/JVM puro.
+- `:core:contracts`: módulo Kotlin/JVM puro con los DTOs públicos de
+  enrolamiento C02A.
 - `:core:domain`: módulo Kotlin/JVM puro, sin dependencia de Android.
 - `:core:data`: biblioteca Android; depende de domain y contracts.
 - `:core:platform`: biblioteca Android; depende de domain.
 
-Los módulos están vacíos de comportamiento intencionalmente. La inyección de
-dependencias será manual cuando una fase funcional la requiera.
+Los módulos `domain`, `data` y `platform` permanecen vacíos de comportamiento
+intencionalmente. La inyección de dependencias será manual cuando una fase
+funcional la requiera.
+
+## Contratos wire C02A
+
+`:core:contracts` representa exclusivamente el request, response, credential y
+error envelope publicados en `shared/contracts/`. Sus modelos usan
+`kotlinx.serialization` 1.11.0, propiedades requeridas sin defaults y enums
+wire cerrados. Request, response y credential son clases normales con
+`toString()` redactado; el token y la credential nunca se incluyen en esa
+representación.
+
+Los tests JVM configuran JSON estricto y leen directamente los fixtures
+canónicos de `shared/contracts/examples/`, declarado como input de la tarea
+Gradle. No se copian ni modifican fixtures. La deserialización valida forma,
+campos requeridos, nullability y enums; JSON Schema continúa siendo la autoridad
+para UUID, patterns, longitudes, SemVer, timestamps y demás semántica.
+
+C02A no implementa dominio, mapping DTO/domain, cliente HTTP, persistencia,
+Keystore, enrolamiento ejecutable, UI ni tareas remotas. Esas capacidades quedan
+explícitamente diferidas a C02B, C03 o fases posteriores.
 
 ## Generación verificada del Wrapper
 
