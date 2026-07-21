@@ -1,9 +1,9 @@
 # Android agent
 
-Este directorio contiene el bootstrap reproducible C01 y los contratos wire de
-enrolamiento C02A del agente Android. El proyecto no define todavía pantallas,
-actividades, servicios, permisos, persistencia, red, dominio funcional ni
-capabilities.
+Este directorio contiene el bootstrap reproducible C01, los contratos wire de
+enrolamiento C02A y el dominio base puro C02B del agente Android. El proyecto no
+define todavía pantallas, actividades, servicios, permisos, persistencia, red,
+mapping DTO/dominio ni capabilities.
 
 ## Toolchain
 
@@ -34,11 +34,12 @@ compatible.
 - `:app`: ensamblado Android mínimo; puede depender de todos los módulos core.
 - `:core:contracts`: módulo Kotlin/JVM puro con los DTOs públicos de
   enrolamiento C02A.
-- `:core:domain`: módulo Kotlin/JVM puro, sin dependencia de Android.
+- `:core:domain`: módulo Kotlin/JVM puro con identidad, configuración segura,
+  secretos, credenciales y aceptación factual de enrolamiento C02B.
 - `:core:data`: biblioteca Android; depende de domain y contracts.
 - `:core:platform`: biblioteca Android; depende de domain.
 
-Los módulos `domain`, `data` y `platform` permanecen vacíos de comportamiento
+Los módulos `data` y `platform` permanecen vacíos de comportamiento
 intencionalmente. La inyección de dependencias será manual cuando una fase
 funcional la requiera.
 
@@ -58,8 +59,62 @@ campos requeridos, nullability y enums; JSON Schema continúa siendo la autorida
 para UUID, patterns, longitudes, SemVer, timestamps y demás semántica.
 
 C02A no implementa dominio, mapping DTO/domain, cliente HTTP, persistencia,
-Keystore, enrolamiento ejecutable, UI ni tareas remotas. Esas capacidades quedan
-explícitamente diferidas a C02B, C03 o fases posteriores.
+Keystore, enrolamiento ejecutable, UI ni tareas remotas. El dominio puro se
+incorpora por separado en C02B; mapping y transporte permanecen diferidos a C03.
+
+## Dominio puro C02B
+
+`:core:domain` no depende de `:core:contracts` ni de ningún módulo Android.
+Tampoco importa `android.*`, `BuildConfig`, serialización, JSON, red,
+persistencia o filesystem. Sus factories devuelven `ValidationResult.Valid` o
+`ValidationResult.Invalid` con errores cerrados, estables y sin raw input.
+
+C02B incorpora:
+
+- IDs tipados: los UUID son canónicos lowercase, variante RFC, versiones 1–8 y
+  no aceptan el UUID cero; `IdempotencyKey` exige específicamente UUID v4 y
+  `CorrelationId` conserva case bajo el patrón contractual.
+- `SemanticVersion` numérica con `BigInteger`, comparación SemVer 2.0 y
+  prerelease estricto; schema y Agent Protocol soportan actualmente `1.0.0`,
+  mientras `AgentVersion` sólo valida sintaxis y se inyectará más adelante.
+- `ServerBaseUrl` HTTPS absoluta y canónica: sin userinfo, query, fragment,
+  escapes ni paths ambiguos; DNS alfanumérico legítimo se guarda lowercase e
+  IDN sin caracteres de desviación IDNA2003 se convierte a punycode. Se rechazan
+  fail-closed `U+00DF`, `U+03C2`, `U+200C` y `U+200D`; punycode ASCII explícito
+  continúa permitido. IPv4 admite sólo cuatro octetos decimales canónicos sin
+  ceros iniciales: rechaza hexadecimal, octal, enteros compactos, componentes
+  abreviados y Unicode normalizado a una representación numérica. IPv6 exige
+  corchetes. Esta validación no realiza DNS, networking, reachability ni
+  negociación TLS, y no implementa enrolamiento funcional.
+- `EnrollmentToken` y `AgentCredentialSecret` como clases de igualdad
+  referencial, raw privado, `toString()` redactado y acceso únicamente mediante
+  `useSecret`. `String` no ofrece zeroization garantizable; C02B no afirma lo
+  contrario.
+- Metadata de credential segura, expiración con `Instant` recibido por el
+  caller y usabilidad factual `Usable`, `PendingActivation` o `Expired`.
+  `now >= expiresAt` siempre es `Expired`; una credential pending nunca es
+  usable.
+- Separación entre `LocalInstallationIdentity` y `BackendAgentIdentity`, con
+  `IdentityState.Absent`, `LocalOnly` o `Assigned`. Recovery puede conservar la
+  asignación backend y asociar otra instalación, pero C02B no ejecuta ese flujo.
+- `BackendEnrollmentAcceptance` como hecho ya validado por un boundary futuro.
+  Conserva la instalación usada, la asignación backend, la credential entregada,
+  tiempo del servidor y protocolo, pero no representa persistencia,
+  autenticación exitosa, recovery ni enrolamiento durable.
+
+No existe `EnrollmentState` ni una máquina de transiciones. Una respuesta del
+backend no convierte por sí sola al agente en `Enrolled`: C02B no tiene mapper,
+HTTP, retry, Room, DataStore, SharedPreferences, Android Keystore, UI,
+WorkManager, Foreground Service ni tareas remotas.
+
+El regex SemVer publicado en `shared/contracts` admite algunas formas de
+prerelease que SemVer 2.0 estricto rechaza, como identificadores vacíos o
+numéricos con ceros iniciales. Los contratos normativos no se cambian en C02B;
+C03 deberá reportar esa diferencia como violación contractual explícita y nunca
+normalizarla silenciosamente.
+
+Los tests de C02B son JVM puros. Tests instrumentados y emuladores no aplican y
+no se ejecutan en este corte.
 
 ## Generación verificada del Wrapper
 
@@ -102,6 +157,7 @@ Comandos base desde este directorio:
 .\gradlew.bat tasks
 .\gradlew.bat help
 .\gradlew.bat :core:contracts:build :core:domain:build
+.\gradlew.bat :core:domain:test
 .\gradlew.bat :core:data:assembleDebug :core:platform:assembleDebug
 .\gradlew.bat :app:assembleDebug lint
 ```
