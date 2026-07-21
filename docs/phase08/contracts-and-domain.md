@@ -163,12 +163,13 @@ autenticación exitosa, retry, recovery ni enrolamiento durable.
 No existe `EnrollmentState`, `PreparedEnrollment`, `Enrolled` o
 `RecoveryRequired`, ni una máquina de transiciones.
 
-## Límites posteriores
+## Continuidad en C03 y límites posteriores
 
-C03 queda diferido para mapping DTO/dominio, serialización de producción,
-transporte HTTP y sus errores en `core:data`. C02B no introduce mapping, JSON,
-red, persistencia, filesystem, Room, Keystore, DataStore, SharedPreferences,
-repositorios, APIs Android ni UI.
+C03 implementa mapping DTO/dominio, serialización de producción y transporte
+HTTPS endurecido en `:core:data`; su referencia está en
+[`c03-enrollment-transport.md`](c03-enrollment-transport.md). C02B no introduce
+mapping, JSON, red, persistencia, filesystem, Room, Keystore, DataStore,
+SharedPreferences, repositorios, APIs Android ni UI.
 
 También permanecen ausentes persistencia, Android Keystore, APIs Android,
 permisos, UI, WorkManager, Foreground Service, capabilities, presence, sync,

@@ -34,4 +34,10 @@ kotlin {
 dependencies {
     implementation(project(":core:contracts"))
     implementation(project(":core:domain"))
+    implementation(libs.kotlinx.serialization.json)
+    implementation(libs.okhttp)
+
+    testImplementation(libs.okhttp.mockwebserver3)
+    testImplementation(libs.okhttp.tls)
+    testImplementation(kotlin("test-junit"))
 }

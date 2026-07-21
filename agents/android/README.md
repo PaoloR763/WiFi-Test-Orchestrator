@@ -1,9 +1,9 @@
 # Android agent
 
 Este directorio contiene el bootstrap reproducible C01, los contratos wire de
-enrolamiento C02A y el dominio base puro C02B del agente Android. El proyecto no
-define todavía pantallas, actividades, servicios, permisos, persistencia, red,
-mapping DTO/dominio ni capabilities.
+enrolamiento C02A, el dominio base puro C02B y la integración inicial de
+enrolamiento C03. El proyecto sigue sin pantallas, actividades, servicios,
+persistencia, capabilities ni ejecución durable del agente.
 
 ## Toolchain
 
@@ -36,12 +36,13 @@ compatible.
   enrolamiento C02A.
 - `:core:domain`: módulo Kotlin/JVM puro con identidad, configuración segura,
   secretos, credenciales y aceptación factual de enrolamiento C02B.
-- `:core:data`: biblioteca Android; depende de domain y contracts.
+- `:core:data`: biblioteca Android con mapping, JSON estricto y transporte HTTPS
+  de enrolamiento C03; depende de domain y contracts.
 - `:core:platform`: biblioteca Android; depende de domain.
 
-Los módulos `data` y `platform` permanecen vacíos de comportamiento
-intencionalmente. La inyección de dependencias será manual cuando una fase
-funcional la requiera.
+`:core:platform` permanece vacío de comportamiento intencionalmente. C03 no
+introduce composición general: `:app` sólo inicializa explícitamente el runtime
+Android público de OkHttp mediante una fachada de `:core:data`.
 
 ## Contratos wire C02A
 
@@ -58,9 +59,9 @@ Gradle. No se copian ni modifican fixtures. La deserialización valida forma,
 campos requeridos, nullability y enums; JSON Schema continúa siendo la autoridad
 para UUID, patterns, longitudes, SemVer, timestamps y demás semántica.
 
-C02A no implementa dominio, mapping DTO/domain, cliente HTTP, persistencia,
-Keystore, enrolamiento ejecutable, UI ni tareas remotas. El dominio puro se
-incorpora por separado en C02B; mapping y transporte permanecen diferidos a C03.
+C02A no implementa dominio, persistencia, Keystore, enrolamiento durable, UI ni
+tareas remotas. El dominio puro se incorpora por separado en C02B y el mapping y
+transporte inicial se implementan en C03 sin alterar `:core:contracts`.
 
 ## Dominio puro C02B
 
@@ -103,18 +104,63 @@ C02B incorpora:
   autenticación exitosa, recovery ni enrolamiento durable.
 
 No existe `EnrollmentState` ni una máquina de transiciones. Una respuesta del
-backend no convierte por sí sola al agente en `Enrolled`: C02B no tiene mapper,
-HTTP, retry, Room, DataStore, SharedPreferences, Android Keystore, UI,
-WorkManager, Foreground Service ni tareas remotas.
+backend no convierte por sí sola al agente en `Enrolled`: C03 produce una
+aceptación factual en memoria, pero no incorpora retry, Room, DataStore,
+SharedPreferences, Android Keystore, UI, WorkManager, Foreground Service ni
+tareas remotas.
 
 El regex SemVer publicado en `shared/contracts` admite algunas formas de
 prerelease que SemVer 2.0 estricto rechaza, como identificadores vacíos o
-numéricos con ceros iniciales. Los contratos normativos no se cambian en C02B;
-C03 deberá reportar esa diferencia como violación contractual explícita y nunca
-normalizarla silenciosamente.
+numéricos con ceros iniciales. Los contratos normativos no se cambian en C02B o
+C03; la construcción local falla de manera cerrada y la diferencia queda como
+deuda de paridad contractual, nunca se normaliza silenciosamente.
 
 Los tests de C02B son JVM puros. Tests instrumentados y emuladores no aplican y
 no se ejecutan en este corte.
+
+## Integración de enrolamiento C03
+
+`:core:data` convierte un comando completo y validado en el DTO C02A, verifica
+el JSON serializado y ejecuta exactamente un `POST` contra el endpoint relativo
+`api/v1/agent-enrollments`. La construcción conserva scheme, host, puerto,
+capitalización y todos los segmentos del base path HTTPS. El caller aporta
+`Idempotency-Key` y `X-Correlation-ID`; la primera se repite idéntica en el
+payload. No se envían `Authorization`, cookies ni `Proxy-Authorization`.
+
+La instancia de JSON de producción rechaza propiedades desconocidas, coerción,
+leniencia, nombres alternativos, enums con otra capitalización y valores
+numéricos especiales. Una prevalidación distingue ausencia, `null`, tipo JSON y
+semántica; un scanner acotado rechaza claves duplicadas en cualquier objeto,
+incluidas claves equivalentes escritas con escapes. El request no puede superar
+32 KiB. Cada body de respuesta se lee incrementalmente hasta un máximo de
+65.536 bytes descomprimidos; el byte 65.537 falla de manera cerrada.
+
+El transporte usa una única instancia compartida de OkHttp 5.3.2, sin Retrofit,
+redirects, retry de conexión, fast fallback, cache, cookies, authenticators ni
+interceptors. Conserva DNS, trust manager y hostname verifier del sistema, no
+agrega CA privada ni certificate pinning y admite sólo HTTPS. Sus timeouts son
+10 s de conexión, 20 s de lectura, 20 s de escritura y 30 s para la llamada
+completa. La operación es bloqueante y debe ejecutarse fuera del main thread;
+`cancel()` delega a la llamada real. Un timeout o cancelación posterior al envío
+deja indeterminado si el backend procesó la solicitud.
+
+Sólo `201` puede producir `Accepted`. Los estados `401`, `409`, `413`, `422`,
+`429` y `503` producen `Rejected` únicamente con envelope, MIME y correlación
+completamente válidos; cualquier otro status o body inválido produce `Failed`.
+Para toda respuesta procesable debe existir un único `X-Correlation-ID` válido e
+idéntico al solicitado; en errores también debe coincidir con
+`error.correlation_id`. Los mensajes, details, cuerpos, URLs y excepciones no se
+retienen en resultados públicos ni en representaciones textuales.
+
+OkHttp incorpora AndroidX Startup transitivamente. El manifest de `:app`
+elimina explícitamente su `InitializationProvider` y `WtoApplication` llama a
+la inicialización pública soportada mediante `EnrollmentHttpRuntime`, sin
+exponer tipos OkHttp a `:app` ni iniciar tráfico o features. El único permiso
+agregado es `android.permission.INTERNET`, declarado por `:core:data`; cleartext
+permanece desactivado.
+
+La referencia detallada, taxonomías, cobertura y deudas conocidas están en
+[`docs/phase08/c03-enrollment-transport.md`](../../docs/phase08/c03-enrollment-transport.md).
 
 ## Generación verificada del Wrapper
 
