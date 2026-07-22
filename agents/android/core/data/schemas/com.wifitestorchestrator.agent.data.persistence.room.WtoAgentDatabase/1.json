@@ -1,0 +1,109 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 1,
+    "identityHash": "2a33bf103f9927f13a8246f20d09ad8e",
+    "entities": [
+      {
+        "tableName": "local_installation",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`singleton_id` INTEGER NOT NULL, `installation_id` TEXT NOT NULL, `created_at_epoch_seconds` INTEGER NOT NULL, `created_at_nanoseconds` INTEGER NOT NULL, PRIMARY KEY(`singleton_id`))",
+        "fields": [
+          {
+            "fieldPath": "singletonId",
+            "columnName": "singleton_id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "installationId",
+            "columnName": "installation_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAtEpochSeconds",
+            "columnName": "created_at_epoch_seconds",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAtNanoseconds",
+            "columnName": "created_at_nanoseconds",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "singleton_id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_local_installation_installation_id",
+            "unique": true,
+            "columnNames": [
+              "installation_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_local_installation_installation_id` ON `${TABLE_NAME}` (`installation_id`)"
+          }
+        ]
+      },
+      {
+        "tableName": "server_configuration",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`singleton_id` INTEGER NOT NULL, `base_url` TEXT NOT NULL, `updated_at_epoch_seconds` INTEGER NOT NULL, `updated_at_nanoseconds` INTEGER NOT NULL, PRIMARY KEY(`singleton_id`), FOREIGN KEY(`singleton_id`) REFERENCES `local_installation`(`singleton_id`) ON UPDATE NO ACTION ON DELETE RESTRICT )",
+        "fields": [
+          {
+            "fieldPath": "singletonId",
+            "columnName": "singleton_id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "baseUrl",
+            "columnName": "base_url",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAtEpochSeconds",
+            "columnName": "updated_at_epoch_seconds",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAtNanoseconds",
+            "columnName": "updated_at_nanoseconds",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "singleton_id"
+          ]
+        },
+        "foreignKeys": [
+          {
+            "table": "local_installation",
+            "onDelete": "RESTRICT",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "singleton_id"
+            ],
+            "referencedColumns": [
+              "singleton_id"
+            ]
+          }
+        ]
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '2a33bf103f9927f13a8246f20d09ad8e')"
+    ]
+  }
+}

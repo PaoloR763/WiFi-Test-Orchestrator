@@ -1,3 +1,4 @@
+import org.gradle.api.tasks.testing.Test
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
@@ -40,4 +41,43 @@ dependencies {
     implementation(project(":core:domain"))
     implementation(project(":core:data"))
     implementation(project(":core:platform"))
+
+    testImplementation(kotlin("test-junit"))
+}
+
+val sourceManifest = layout.projectDirectory.file("src/main/AndroidManifest.xml")
+val backupRules = layout.projectDirectory.file("src/main/res/xml/backup_rules.xml")
+val dataExtractionRules =
+    layout.projectDirectory.file("src/main/res/xml/data_extraction_rules.xml")
+val mergedDebugManifest =
+    layout.buildDirectory.file(
+        "intermediates/merged_manifest/debug/processDebugMainManifest/AndroidManifest.xml",
+    )
+val mergedReleaseManifest =
+    layout.buildDirectory.file(
+        "intermediates/merged_manifest/release/processReleaseMainManifest/AndroidManifest.xml",
+    )
+
+tasks.withType<Test>().configureEach {
+    if (name == "testDebugUnitTest") {
+        dependsOn("processDebugMainManifest", "processReleaseMainManifest")
+        inputs.files(
+            sourceManifest,
+            backupRules,
+            dataExtractionRules,
+            mergedDebugManifest,
+            mergedReleaseManifest,
+        )
+        doFirst {
+            systemProperty("wto.android.app.projectDir", layout.projectDirectory.asFile.absolutePath)
+            systemProperty(
+                "wto.android.app.mergedDebugManifest",
+                mergedDebugManifest.get().asFile.absolutePath,
+            )
+            systemProperty(
+                "wto.android.app.mergedReleaseManifest",
+                mergedReleaseManifest.get().asFile.absolutePath,
+            )
+        }
+    }
 }

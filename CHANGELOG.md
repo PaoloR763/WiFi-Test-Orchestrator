@@ -8,6 +8,11 @@ Versioning cuando existan releases publicadas.
 
 ## Unreleased
 
+- Agregada la base Android C04 con Room v1 para identidad de instalación,
+  configuración HTTPS actual y timestamps nanosegundo únicamente; usa apertura
+  lazy bajo no-backup, WAL, errores redactados, corrupción fail-closed, schema
+  versionado, políticas de exclusión de backup y tests JVM herméticos con
+  Robolectric/SQLite real, sin persistir enrolamiento, credentials o secretos.
 - Preservado el default fail-closed de secretos Linux de Fase 05; Secret
   Service completo ahora está acotado fuera del event loop, el store AES-GCM
   opera descriptor-anchored y capabilities/systemd/NetworkManager publican

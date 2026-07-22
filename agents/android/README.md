@@ -1,9 +1,10 @@
 # Android agent
 
 Este directorio contiene el bootstrap reproducible C01, los contratos wire de
-enrolamiento C02A, el dominio base puro C02B y la integración inicial de
-enrolamiento C03. El proyecto sigue sin pantallas, actividades, servicios,
-persistencia, capabilities ni ejecución durable del agente.
+enrolamiento C02A, el dominio base puro C02B, la integración inicial de
+enrolamiento C03 y la base de persistencia local Room C04. El proyecto sigue
+sin pantallas, actividades, servicios, capabilities, secretos persistidos ni
+ejecución durable del agente.
 
 ## Toolchain
 
@@ -37,7 +38,8 @@ compatible.
 - `:core:domain`: módulo Kotlin/JVM puro con identidad, configuración segura,
   secretos, credenciales y aceptación factual de enrolamiento C02B.
 - `:core:data`: biblioteca Android con mapping, JSON estricto y transporte HTTPS
-  de enrolamiento C03; depende de domain y contracts.
+  de enrolamiento C03, más persistencia Room no sensible C04; depende de domain
+  y contracts.
 - `:core:platform`: biblioteca Android; depende de domain.
 
 `:core:platform` permanece vacío de comportamiento intencionalmente. C03 no
@@ -161,6 +163,32 @@ permanece desactivado.
 
 La referencia detallada, taxonomías, cobertura y deudas conocidas están en
 [`docs/phase08/c03-enrollment-transport.md`](../../docs/phase08/c03-enrollment-transport.md).
+
+## Persistencia local Room C04
+
+`:core:data` incorpora una base Room v1 llamada `wto-agent.db`, ubicada mediante
+la API pública SQLite/AndroidX bajo `applicationContext.noBackupFilesDir`. Sólo
+contiene dos tablas y ocho columnas: instalación local, servidor actual y sus
+timestamps `(epoch seconds, nanoseconds)`. No contiene identidad backend,
+estado de enrolamiento, metadata de credentials, secretos, cuerpos ni errores.
+
+La factory pública captura `applicationContext` y entrega un repositorio lazy;
+la base no se construye ni abre hasta la primera operación y existe una única
+instancia por proceso. Entities, DAO, database y helper permanecen `internal`.
+Las lecturas conjuntas y escrituras compuestas son transaccionales, las
+consultas en main thread siguen prohibidas, WAL está fijado y no existen delete,
+reset, replace ni fallback destructivo.
+
+El helper usa `noBackupDirectory(true)`, deshabilita recuperación con pérdida de
+datos e intercepta corrupción sin delegar al callback destructivo. La app
+mantiene `allowBackup=false` y suma exclusiones legacy y Android 12+ para cloud
+y device transfer. Tests JVM herméticos usan Room/SQLite real mediante
+Robolectric 4.16.1, SDK 29 exacto y resolución offline del artifact preparado
+por Gradle.
+
+La arquitectura, schema, API, atomicidad, backup, corrupción, límites de C05/C06
+y evidencia de tests se detallan en
+[`docs/phase08/c04-room-persistence.md`](../../docs/phase08/c04-room-persistence.md).
 
 ## Generación verificada del Wrapper
 
