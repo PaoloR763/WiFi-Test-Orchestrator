@@ -8,6 +8,13 @@ Versioning cuando existan releases publicadas.
 
 ## Unreleased
 
+- Agregada la base criptográfica Android C05: port JVM puro, envelope/AAD v1
+  cerrados, clave AES-256-GCM administrada por Android Keystore, lifecycle
+  idempotente, descifrado callback-scoped, redacción, zeroization best-effort y
+  tests JVM/Robolectric host. No persiste credentials ni modifica Room; la
+  validación estricta acepta en API 29–36.0 la limitación conocida
+  `NOT_OBSERVABLE` sólo para el alias v1 y con todos los demás atributos exactos;
+  desde API 36.1 exige evidencia observada `NOT_REQUIRED`.
 - Agregada la base Android C04 con Room v1 para identidad de instalación,
   configuración HTTPS actual y timestamps nanosegundo únicamente; usa apertura
   lazy bajo no-backup, WAL, errores redactados, corrupción fail-closed, schema

@@ -24,6 +24,21 @@ La primera versión debe ser operable en Windows, Linux, Android e iOS sin exigi
 - Los tokens de FCM/APNs, cookies de usuarios y credenciales de infraestructura externa no podrán autenticar a un agente.
 - Todas las operaciones posteriores al bootstrap usarán TLS; no habrá modo de producción con transporte en claro.
 
+### Aclaración Android — Fase 08 / C05
+
+La decisión histórica de “guardar credenciales mediante Android Keystore” no
+significa almacenar directamente un bearer credential recuperable dentro de
+Keystore. En Android, Keystore conserva la clave criptográfica de la aplicación.
+C05 usa esa clave para cifrar la credential en memoria mediante AES-256-GCM y
+produce un envelope autenticado; no lo persiste ni afirma enrolamiento durable.
+
+C06 incorporará Room v2 y almacenará el envelope completo —sealed credential,
+nonce/IV, alias real, versión criptográfica, identidad y metadata requerida—,
+nunca el plaintext. Sólo después de completar y validar esa coordinación
+transaccional podrá representarse enrolamiento durable. Esta aclaración es
+específica del mecanismo Android v1 y no cierra las decisiones históricas sobre
+rotación multiplataforma, proof-of-possession o mTLS.
+
 ## Consequences
 
 - Es posible revocar, rotar y auditar cada agente sin afectar a toda la flota.

@@ -3,8 +3,9 @@
 Este directorio contiene el bootstrap reproducible C01, los contratos wire de
 enrolamiento C02A, el dominio base puro C02B, la integración inicial de
 enrolamiento C03 y la base de persistencia local Room C04. El proyecto sigue
-sin pantallas, actividades, servicios, capabilities, secretos persistidos ni
-ejecución durable del agente.
+sin pantallas, actividades, servicios, capabilities, credentials persistidas
+ni ejecución durable del agente. C05 agrega protección criptográfica en memoria
+con Android Keystore, pero no compone ni persiste todavía ese flujo.
 
 ## Toolchain
 
@@ -36,15 +37,17 @@ compatible.
 - `:core:contracts`: módulo Kotlin/JVM puro con los DTOs públicos de
   enrolamiento C02A.
 - `:core:domain`: módulo Kotlin/JVM puro con identidad, configuración segura,
-  secretos, credenciales y aceptación factual de enrolamiento C02B.
+  secretos, credenciales, aceptación factual de enrolamiento C02B y el port y
+  modelos criptográficos puros C05.
 - `:core:data`: biblioteca Android con mapping, JSON estricto y transporte HTTPS
   de enrolamiento C03, más persistencia Room no sensible C04; depende de domain
   y contracts.
-- `:core:platform`: biblioteca Android; depende de domain.
+- `:core:platform`: biblioteca Android con el adapter Android Keystore/AES-GCM
+  C05; depende únicamente de domain.
 
-`:core:platform` permanece vacío de comportamiento intencionalmente. C03 no
-introduce composición general: `:app` sólo inicializa explícitamente el runtime
-Android público de OkHttp mediante una fachada de `:core:data`.
+C03 no introduce composición general: `:app` sólo inicializa explícitamente el
+runtime Android público de OkHttp mediante una fachada de `:core:data`. C05 no
+modifica ese composition root ni crea claves eager.
 
 ## Contratos wire C02A
 
@@ -189,6 +192,46 @@ por Gradle.
 La arquitectura, schema, API, atomicidad, backup, corrupción, límites de C05/C06
 y evidencia de tests se detallan en
 [`docs/phase08/c04-room-persistence.md`](../../docs/phase08/c04-room-persistence.md).
+
+## Protección criptográfica C05
+
+`:core:domain` define `CredentialProtector`, policy y crypto version cerradas,
+un envelope v1 no serializable y el AAD binario canónico. `:core:platform`
+implementa una factory lazy y sin `Context`, solicita una clave AES-256 al
+provider `AndroidKeyStore` y exige `encoded == null` al inspeccionarla bajo el
+alias fijo
+`com.wifitestorchestrator.agent.credential.aead.v1`, y AES-GCM con nonce de 12
+bytes y tag de 128 bits. Cada operación usa un `Cipher` nuevo y debe ejecutarse
+fuera del main thread.
+
+La no exportabilidad efectiva del provider real no se afirma en C05: requiere
+evidencia instrumentada C12.
+
+El plaintext contractual de 89 bytes se convierte a ASCII sin replacement,
+sólo vive en buffers acotados y se limpia best-effort. El descifrado entrega un
+`AgentCredentialSecret` validado únicamente dentro de un callback `Unit`; una
+captura fuera del callback viola el contrato. JVM/Kotlin/JCA pueden conservar
+copias internas que no son zeroizables con garantía.
+
+Keystore almacena la clave, no el bearer credential. C05 produce en memoria un
+envelope con crypto version, alias, credential ID/version, nonce y sealed
+credential, pero no lo serializa ni lo escribe en Room. C06 deberá incorporar
+Room v2 y coordinar identidad, metadata y envelope antes de afirmar
+enrolamiento durable.
+
+La validación de una clave existente es fail-closed. Android recién expone
+`KeyInfo.isUnlockedDeviceRequired()` en API 36.1. En API 29–36.0 C05 conserva el
+atributo como `NOT_OBSERVABLE` y aplica una compatibilidad acotada al alias fijo
+v1 sólo cuando todos los demás atributos observables son exactos; no afirma que
+el valor `false` haya sido observado. Desde API 36.1 exige evidencia positiva
+`NOT_REQUIRED` y no aplica ese fallback. Robolectric SDK 29 y seams explícitos
+validan la policy y el lifecycle host en los límites 29/35/36.0/36.1, pero no
+representan el provider `AndroidKeyStore`; la evidencia real, KeyMint, hardware,
+reboot e invalidación queda `NOT RUN` hasta C12.
+
+La policy, formato AAD, golden vector, taxonomía de errores, threat model,
+compatibilidad por API y matriz de evidencia están en
+[`docs/phase08/c05-android-keystore.md`](../../docs/phase08/c05-android-keystore.md).
 
 ## Generación verificada del Wrapper
 

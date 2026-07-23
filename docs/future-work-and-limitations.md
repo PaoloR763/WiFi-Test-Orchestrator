@@ -290,32 +290,53 @@ Contradicciones o ambigüedades detectadas:
 - **Identificador estable:** `FW-MOB-001`
 - **Nombre:** Aplicación agente Android.
 - **Área o componente:** Mobile / Android.
-- **Estado:** `DEFERRED`.
+- **Estado:** `IN_PROGRESS`.
 - **Prioridad:** `TO_BE_DECIDED`.
 - **Descripción:** Agente Kotlin/Jetpack con enrolamiento, Room, WorkManager,
   Foreground Service, UI, capabilities y probes permitidos.
-- **Comportamiento actual:** Sólo existen contratos/fixtures Kotlin; el
-  directorio `mobile/` reserva el límite y no contiene una app Android.
-- **Impacto:** No se pueden ejecutar pruebas ni validar lifecycle, permisos,
-  Doze, foreground o hardware Android.
-- **Motivo por el que no está completa:** Implementación postergada después de
-  desktop.
-- **Dependencias:** Contratos, orquestación móvil y providers de probes/tráfico.
-- **Riesgos:** Prometer scan/background ilimitado o capacidades fuera de las
-  APIs soportadas.
-- **Workaround actual:** Consumidor Kotlin de contract tests; no es un agente.
-- **Criterios de aceptación:** Alcance, tests y restricciones detallados en el
-  Prompt 08, incluyendo dos API levels y device/instrumented tests.
-- **Evidencia actual:** `mobile/README.md` y `README.md` dicen que Android no
-  está implementado; sólo existe
-  `shared/contracts/consumers/kotlin/`.
+- **Comportamiento actual:** Existe el proyecto nativo modular
+  `agents/android/`. C01 aporta bootstrap reproducible; C02A contratos wire;
+  C02B dominio puro; C03 transporte HTTPS y mapping de enrolamiento en memoria;
+  C04 Room v1 exclusivamente no sensible; C05 port/envelope/AAD y protección
+  AES-256-GCM mediante Android Keystore en memoria. No existe todavía
+  persistencia del envelope, enrolamiento durable, coordinación completa,
+  WorkManager, Foreground Service, UI, capabilities, probes ni tareas remotas.
+- **Impacto:** La base C01–C05 puede compilarse y probarse en host, pero todavía
+  no constituye un agente Android funcional completo ni puede ejecutar pruebas.
+  C05 distingue la limitación conocida de observabilidad unlocked-device en API
+  29–36.0 y sólo acepta el alias v1 cuando todos los demás atributos son exactos;
+  desde API 36.1 exige evidencia observada `NOT_REQUIRED`. C06 no debe consumir
+  un token single-use hasta que esta corrección pase revisión independiente.
+- **Motivo por el que no está completa:** Faltan C06–C14, incluida persistencia
+  criptográfica coordinada, runtime/lifecycle, UI, capabilities, probes,
+  instrumentación real, CI y cierre documental.
+- **Dependencias:** Contratos, orquestación móvil, persistencia Room v2,
+  lifecycle Android y providers de probes/tráfico.
+- **Riesgos:** Prometer enrolamiento durable, no exportabilidad/hardware-backed,
+  scan/background ilimitado o capacidades fuera de APIs verificadas; asumir
+  evidencia positiva de unlocked-device antes de API 36.1, donde sólo existe
+  una regla de compatibilidad acotada por alias y atributos observables.
+- **Workaround actual:** Ninguno que equivalga a un agente. Las capas C01–C05
+  permiten continuar desarrollo y tests host sin persistir plaintext.
+- **Criterios de aceptación:** Completar C06–C14 y la matriz instrumentada al
+  menos en API 29 y API 36/36.1, con permisos denegados, lifecycle,
+  foreground/background, cambio Wi-Fi/celular, Doze, process death, Keystore,
+  backup/restore y hardware presente/ausente.
+- **Evidencia actual:** `agents/android/README.md` y
+  `docs/phase08/c03-enrollment-transport.md`,
+  `docs/phase08/c04-room-persistence.md` y
+  `docs/phase08/c05-android-keystore.md`. C05 conserva Room v1 y no compone el
+  adapter desde `:app`.
 - **Evidencia de validación requerida:** Unit/instrumented tests, permisos
   denegados, foreground/background, cambio Wi-Fi/celular, Doze y terminación de
-  proceso en dispositivos reales.
-- **Decisión pendiente:** Matriz inicial de API levels, canal de distribución y
-  prioridad de producto.
-- **Fase futura sugerida:** Fase 08.
-- **Última revisión:** 2026-07-17.
+  proceso en dispositivos reales; provider `AndroidKeyStore`, `encoded == null`,
+  TEE/StrongBox/software, invalidación, restart, uninstall y restore sin clave
+  permanecen `NOT RUN` hasta C12.
+- **Decisión pendiente:** Validación instrumentada/OEM de la regla unlocked-device
+  en API 29 y 36.1, matriz final de API levels, canal de distribución y prioridad
+  de producto.
+- **Fase futura sugerida:** Fase 08 en curso; C06–C14 pendientes.
+- **Última revisión:** 2026-07-22.
 
 ### FW-MOB-002 — Agente iOS/iPadOS nativo
 
