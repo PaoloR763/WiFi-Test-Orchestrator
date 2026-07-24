@@ -6,12 +6,18 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 
 @Database(
-    entities = [LocalInstallationEntity::class, ServerConfigurationEntity::class],
-    version = 1,
+    entities = [
+        LocalInstallationEntity::class,
+        ServerConfigurationEntity::class,
+        ProtectedEnrollmentEntity::class,
+    ],
+    version = 2,
     exportSchema = true,
 )
 internal abstract class WtoAgentDatabase : RoomDatabase() {
     internal abstract fun localStateDao(): LocalStateDao
+
+    internal abstract fun protectedEnrollmentDao(): ProtectedEnrollmentDao
 
     companion object {
         internal const val DATABASE_NAME = "wto-agent.db"
@@ -28,6 +34,7 @@ internal abstract class WtoAgentDatabase : RoomDatabase() {
                 databaseName,
             )
                 .openHelperFactory(FailClosedRoomOpenHelperFactory())
+                .addMigrations(*WtoAgentDatabaseMigrations.ALL)
                 .setJournalMode(JournalMode.WRITE_AHEAD_LOGGING)
                 .build()
         }

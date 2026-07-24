@@ -15,24 +15,34 @@ import kotlin.test.assertTrue
 class RoomSchemaSecurityTest {
     private val projectDirectory =
         File(requireNotNull(System.getProperty("wto.android.data.projectDir")))
-    private val schemaFile =
+    private val schemaV1File =
         File(
             projectDirectory,
             "schemas/com.wifitestorchestrator.agent.data.persistence.room.WtoAgentDatabase/1.json",
         )
+    private val schemaV2File =
+        File(
+            projectDirectory,
+            "schemas/com.wifitestorchestrator.agent.data.persistence.room.WtoAgentDatabase/2.json",
+        )
 
     @Test
-    fun `exported schema contains exactly two tables and eight authorized columns`() {
-        val database = exportedDatabase()
-        val entities = database.getValue("entities").jsonArray
-        val columnsByTable =
-            entities.associate { entityElement ->
-                val entity = entityElement.jsonObject
-                entity.getValue("tableName").jsonPrimitive.content to
-                    entity.getValue("fields").jsonArray.map { field ->
-                        field.jsonObject.getValue("columnName").jsonPrimitive.content
-                    }.toSet()
-            }
+    fun `v1 schema remains the exact C04 shape and identity`() {
+        val database = exportedDatabase(schemaV1File)
+        val columnsByTable = columnsByTable(database)
+
+        assertEquals(setOf("local_installation", "server_configuration"), columnsByTable.keys)
+        assertEquals(8, columnsByTable.values.sumOf { it.size })
+        assertEquals(
+            "2a33bf103f9927f13a8246f20d09ad8e",
+            database.getValue("identityHash").jsonPrimitive.content,
+        )
+    }
+
+    @Test
+    fun `v2 schema contains exactly the three authorized tables and columns`() {
+        val database = exportedDatabase(schemaV2File)
+        val columnsByTable = columnsByTable(database)
 
         assertEquals(
             mapOf(
@@ -50,64 +60,110 @@ class RoomSchemaSecurityTest {
                         "updated_at_epoch_seconds",
                         "updated_at_nanoseconds",
                     ),
+                "protected_enrollment" to protectedEnrollmentColumns,
             ),
             columnsByTable,
         )
-        assertEquals(8, columnsByTable.values.sumOf { it.size })
+        assertEquals(27, columnsByTable.values.sumOf { it.size })
     }
 
     @Test
-    fun `schema SQL has required constraints and no blob or generic storage column`() {
-        val database = exportedDatabase()
+    fun `v2 SQL has two restrictive enrollment foreign keys and only approved blobs`() {
+        val database = exportedDatabase(schemaV2File)
         val entities = database.getValue("entities").jsonArray.map { it.jsonObject }
-        val createSql = entities.joinToString("\n") { it.getValue("createSql").jsonPrimitive.content }
+        val protectedEnrollment =
+            entities.single {
+                it.getValue("tableName").jsonPrimitive.content == "protected_enrollment"
+            }
+        val createSql = protectedEnrollment.getValue("createSql").jsonPrimitive.content
         val normalized = createSql.lowercase()
+        val blobColumns =
+            protectedEnrollment.getValue("fields").jsonArray
+                .map { it.jsonObject }
+                .filter { it.getValue("affinity").jsonPrimitive.content == "BLOB" }
+                .map { it.getValue("columnName").jsonPrimitive.content }
+                .toSet()
 
         assertTrue("primary key(`singleton_id`)" in normalized)
-        assertTrue("foreign key(`singleton_id`)" in normalized)
-        assertTrue("on update no action on delete restrict" in normalized)
-        assertFalse("blob" in normalized)
+        assertEquals(2, normalized.countOccurrences("foreign key(`singleton_id`)"))
+        assertEquals(
+            2,
+            normalized.countOccurrences("on update no action on delete restrict"),
+        )
+        assertEquals(setOf("nonce", "sealed_credential"), blobColumns)
         forbiddenStorageNames.forEach { forbidden ->
             assertFalse(Regex("[`_a-z]$forbidden[`_a-z]").containsMatchIn(normalized))
         }
     }
 
     @Test
-    fun `installation ID index is unique and schema identity is stable`() {
-        val database = exportedDatabase()
+    fun `installation ID index remains unique and v2 identity is generated`() {
+        val database = exportedDatabase(schemaV2File)
         val installation =
             database.getValue("entities").jsonArray
                 .map { it.jsonObject }
                 .single { it.getValue("tableName").jsonPrimitive.content == "local_installation" }
         val index = installation.getValue("indices").jsonArray.single().jsonObject
 
-        assertEquals("index_local_installation_installation_id", index.getValue("name").jsonPrimitive.content)
+        assertEquals(
+            "index_local_installation_installation_id",
+            index.getValue("name").jsonPrimitive.content,
+        )
         assertTrue(index.getValue("unique").jsonPrimitive.content.toBoolean())
-        assertEquals("2a33bf103f9927f13a8246f20d09ad8e", database.getValue("identityHash").jsonPrimitive.content)
+        assertEquals(
+            "412e402cf0ccad7079c1d70488cbea1b",
+            database.getValue("identityHash").jsonPrimitive.content,
+        )
     }
 
     @Test
-    fun `public persistence API cannot accept enrollment or storage implementation types`() {
+    fun `public persistence ports exclude plaintext protector transport and Room types`() {
         val signature =
-            LocalStateRepository::class.java.declaredMethods
+            listOf(LocalStateRepository::class.java, ProtectedEnrollmentRepository::class.java)
+                .flatMap { type -> type.declaredMethods.toList() }
                 .joinToString("\n") { method -> method.toGenericString() }
                 .lowercase()
 
         forbiddenApiTypeNames.forEach { forbidden ->
-            assertFalse(forbidden in signature, "Public persistence API contains a forbidden type category.")
+            assertFalse(
+                forbidden in signature,
+                "Public persistence API contains a forbidden type category.",
+            )
         }
-        setOf("delete", "clear", "reset", "replace", "rawquery", "export", "close").forEach {
+        setOf("delete", "clear", "reset", "rawquery", "export", "close").forEach {
             forbidden -> assertFalse(forbidden in signature)
         }
     }
 
     @Test
-    fun `DAO and builder contain no destructive or permissive operations`() {
+    fun `C06 production source has no protector plaintext token or networking dependency`() {
+        val productionDirectory = File(projectDirectory, "src/main/kotlin")
+        val c06Sources =
+            productionDirectory
+                .walkTopDown()
+                .filter(File::isFile)
+                .filter { file ->
+                    file.name.contains("ProtectedEnrollment") ||
+                        file.name == "AndroidLocalPersistenceFactory.kt" ||
+                        file.name == "WtoAgentDatabaseMigrations.kt"
+                }.toList()
+        val source = c06Sources.joinToString("\n") { it.readText() }
+
+        forbiddenProductionSymbols.forEach { forbidden ->
+            assertFalse(forbidden in source, "C06 production source references $forbidden.")
+        }
+    }
+
+    @Test
+    fun `DAOs and builder contain no destructive or permissive operations`() {
         val daoSource =
-            File(
-                projectDirectory,
-                "src/main/kotlin/com/wifitestorchestrator/agent/data/persistence/room/LocalStateDao.kt",
-            ).readText()
+            listOf("LocalStateDao.kt", "ProtectedEnrollmentDao.kt")
+                .joinToString("\n") { name ->
+                    File(
+                        projectDirectory,
+                        "src/main/kotlin/com/wifitestorchestrator/agent/data/persistence/room/$name",
+                    ).readText()
+                }
         val databaseSource =
             File(
                 projectDirectory,
@@ -126,38 +182,86 @@ class RoomSchemaSecurityTest {
 
     @Test
     fun `failure results expose only closed errors`() {
-        val failure = ReadLocalStateResult.Failure(LocalPersistenceError.CORRUPTION)
-        val rendered = failure.toString().lowercase()
+        val failures =
+            listOf(
+                ReadLocalStateResult.Failure(LocalPersistenceError.CORRUPTION),
+                ReadProtectedEnrollmentResult.Failure(LocalPersistenceError.CORRUPTION),
+                PersistProtectedEnrollmentResult.Failure(LocalPersistenceError.CORRUPTION),
+            )
 
-        assertTrue("corruption" in rendered)
-        forbiddenDiagnosticNames.forEach { forbidden -> assertFalse(forbidden in rendered) }
+        failures.forEach { failure ->
+            val rendered = failure.toString().lowercase()
+            assertTrue("corruption" in rendered)
+            forbiddenDiagnosticNames.forEach { forbidden -> assertFalse(forbidden in rendered) }
+        }
     }
 
-    private fun exportedDatabase(): JsonObject {
+    private fun columnsByTable(database: JsonObject): Map<String, Set<String>> {
+        val entities = database.getValue("entities").jsonArray
+        return entities.associate { entityElement ->
+            val entity = entityElement.jsonObject
+            entity.getValue("tableName").jsonPrimitive.content to
+                entity.getValue("fields").jsonArray.map { field ->
+                    field.jsonObject.getValue("columnName").jsonPrimitive.content
+                }.toSet()
+        }
+    }
+
+    private fun String.countOccurrences(value: String): Int =
+        windowed(value.length).count { it == value }
+
+    private fun exportedDatabase(schemaFile: File): JsonObject {
         assertTrue(schemaFile.isFile)
-        return Json.parseToJsonElement(schemaFile.readText()).jsonObject.getValue("database").jsonObject
+        return Json
+            .parseToJsonElement(schemaFile.readText())
+            .jsonObject
+            .getValue("database")
+            .jsonObject
     }
 
     private companion object {
+        val protectedEnrollmentColumns =
+            setOf(
+                "singleton_id",
+                "installation_id",
+                "server_base_url",
+                "agent_id",
+                "device_id",
+                "protocol_version",
+                "server_received_at_epoch_seconds",
+                "server_received_at_nanoseconds",
+                "credential_id",
+                "credential_version",
+                "issued_at_epoch_seconds",
+                "issued_at_nanoseconds",
+                "expires_at_epoch_seconds",
+                "expires_at_nanoseconds",
+                "credential_delivery_state",
+                "crypto_version",
+                "key_alias",
+                "nonce",
+                "sealed_credential",
+            )
         val forbiddenStorageNames =
             setOf(
                 "token",
                 "secret",
-                "credential",
                 "authorization",
                 "body",
                 "payload",
                 "headers",
+                "request",
+                "response",
                 "exception",
                 "message",
                 "details",
             )
         val forbiddenApiTypeNames =
             setOf(
-                "enrollment",
-                "credential",
-                "token",
                 "deliveredcredential",
+                "credentialprotector",
+                "agentcredentialsecret",
+                "enrollmenttoken",
                 "backendenrollmentacceptance",
                 "dto",
                 "roomdatabase",
@@ -166,6 +270,17 @@ class RoomSchemaSecurityTest {
                 "android.content.context",
                 "androidx.room",
                 "androidx.sqlite",
+            )
+        val forbiddenProductionSymbols =
+            setOf(
+                "CredentialProtector",
+                "DeliveredCredential",
+                "AgentCredentialSecret",
+                "EnrollmentToken",
+                "BackendEnrollmentAcceptance",
+                "OkHttp",
+                "Retrofit",
+                "HttpUrl",
             )
         val forbiddenDiagnosticNames =
             setOf("path", "select", "insert", "https", "exception", "cause", "stack")

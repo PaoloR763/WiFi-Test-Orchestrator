@@ -256,6 +256,31 @@ internal class RoomLocalStateRepositoryTest : RoomPersistenceTestBase() {
     }
 
     @Test
+    fun `set server preserves C04 incomplete result when no enrollment exists`() = runTest {
+        val database = openDatabase()
+        val sqliteDatabase = database.openHelper.writableDatabase
+        withCleanupPreservingPrimaryFailure(
+            cleanup = { sqliteDatabase.execSQL("PRAGMA foreign_keys = ON") },
+        ) {
+            sqliteDatabase.execSQL("PRAGMA foreign_keys = OFF")
+            insertRawServerConfiguration(database)
+        }
+
+        val result =
+            repository(database).setServerConfiguration(
+                serverConfiguration(SECOND_SERVER_URL),
+                Instant.EPOCH,
+            )
+
+        assertEquals(
+            SetServerConfigurationResult.Failure(LocalPersistenceError.STATE_INCOMPLETE),
+            result,
+        )
+        assertRawServerConfigurationRow(database)
+        assertTrue(database.readProtectedEnrollmentEntitiesForTest().isEmpty())
+    }
+
+    @Test
     fun `invalid singleton row is read fail closed`() = runTest {
         val database = openDatabase()
         database.localStateDao().insertInstallation(

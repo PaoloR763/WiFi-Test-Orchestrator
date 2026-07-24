@@ -298,35 +298,41 @@ Contradicciones o ambigüedades detectadas:
   `agents/android/`. C01 aporta bootstrap reproducible; C02A contratos wire;
   C02B dominio puro; C03 transporte HTTPS y mapping de enrolamiento en memoria;
   C04 Room v1 exclusivamente no sensible; C05 port/envelope/AAD y protección
-  AES-256-GCM mediante Android Keystore en memoria. No existe todavía
-  persistencia del envelope, enrolamiento durable, coordinación completa,
-  WorkManager, Foreground Service, UI, capabilities, probes ni tareas remotas.
-- **Impacto:** La base C01–C05 puede compilarse y probarse en host, pero todavía
-  no constituye un agente Android funcional completo ni puede ejecutar pruebas.
+  AES-256-GCM mediante Android Keystore; C06 Room v2 persiste identidad backend,
+  metadata `ACTIVE` y el envelope ya protegido con rotación monotónica y
+  servidor inmutable. No existe todavía coordinación completa, consumo seguro
+  del token bajo mutex, WorkManager, Foreground Service, UI, capabilities,
+  probes ni tareas remotas.
+- **Impacto:** La base C01–C06 puede compilarse y probarse en host, y C06 puede
+  representar enrolamiento durable local después de recibir un envelope válido,
+  pero todavía no constituye un agente Android funcional completo ni puede
+  ejecutar pruebas.
   C05 distingue la limitación conocida de observabilidad unlocked-device en API
   29–36.0 y sólo acepta el alias v1 cuando todos los demás atributos son exactos;
-  desde API 36.1 exige evidencia observada `NOT_REQUIRED`. C06 no debe consumir
-  un token single-use hasta que esta corrección pase revisión independiente.
-- **Motivo por el que no está completa:** Faltan C06–C14, incluida persistencia
-  criptográfica coordinada, runtime/lifecycle, UI, capabilities, probes,
+  desde API 36.1 exige evidencia observada `NOT_REQUIRED`. C06 no consume tokens
+  ni coordina backend, Keystore y Room; esa responsabilidad permanece diferida.
+- **Motivo por el que no está completa:** Faltan C07–C14, incluida coordinación
+  del enrolamiento, runtime/lifecycle, UI, capabilities, probes,
   instrumentación real, CI y cierre documental.
 - **Dependencias:** Contratos, orquestación móvil, persistencia Room v2,
   lifecycle Android y providers de probes/tráfico.
-- **Riesgos:** Prometer enrolamiento durable, no exportabilidad/hardware-backed,
+- **Riesgos:** Confundir atomicidad SQLite con atomicidad entre backend,
+  Keystore y Room; prometer no exportabilidad/hardware-backed,
   scan/background ilimitado o capacidades fuera de APIs verificadas; asumir
   evidencia positiva de unlocked-device antes de API 36.1, donde sólo existe
   una regla de compatibilidad acotada por alias y atributos observables.
-- **Workaround actual:** Ninguno que equivalga a un agente. Las capas C01–C05
+- **Workaround actual:** Ninguno que equivalga a un agente. Las capas C01–C06
   permiten continuar desarrollo y tests host sin persistir plaintext.
-- **Criterios de aceptación:** Completar C06–C14 y la matriz instrumentada al
+- **Criterios de aceptación:** Completar C07–C14 y la matriz instrumentada al
   menos en API 29 y API 36/36.1, con permisos denegados, lifecycle,
   foreground/background, cambio Wi-Fi/celular, Doze, process death, Keystore,
   backup/restore y hardware presente/ausente.
 - **Evidencia actual:** `agents/android/README.md` y
   `docs/phase08/c03-enrollment-transport.md`,
   `docs/phase08/c04-room-persistence.md` y
-  `docs/phase08/c05-android-keystore.md`. C05 conserva Room v1 y no compone el
-  adapter desde `:app`.
+  `docs/phase08/c05-android-keystore.md` y
+  `docs/phase08/c06-protected-enrollment-persistence.md`. C06 conserva la
+  composición fuera de `:app` y no implementa el coordinador.
 - **Evidencia de validación requerida:** Unit/instrumented tests, permisos
   denegados, foreground/background, cambio Wi-Fi/celular, Doze y terminación de
   proceso en dispositivos reales; provider `AndroidKeyStore`, `encoded == null`,
@@ -335,8 +341,59 @@ Contradicciones o ambigüedades detectadas:
 - **Decisión pendiente:** Validación instrumentada/OEM de la regla unlocked-device
   en API 29 y 36.1, matriz final de API levels, canal de distribución y prioridad
   de producto.
-- **Fase futura sugerida:** Fase 08 en curso; C06–C14 pendientes.
-- **Última revisión:** 2026-07-22.
+- **Fase futura sugerida:** Fase 08 en curso; C07–C14 pendientes.
+- **Última revisión:** 2026-07-23.
+
+### FW-MOB-003 — Enforcement arquitectónico estático del agente Android
+
+- **Identificador estable:** `FW-MOB-003`
+- **Nombre:** Validación exhaustiva de API pública, packages y dependencias
+  Android.
+- **Área o componente:** Mobile / Android / quality tooling.
+- **Estado:** `DEFERRED`.
+- **Prioridad:** `TO_BE_DECIDED`.
+- **Descripción:** Incorporar una herramienta mantenible para validar
+  compatibilidad binaria/API, nuevas file facades y tipos públicos, reglas
+  Detekt o equivalentes para packages/imports y análisis transitivo de
+  dependencias y helpers productivos.
+- **Comportamiento actual:** No existe ese enforcement exhaustivo. Los tests C06
+  mantienen un snapshot exacto de 28 tipos públicos conocidos, un inventario
+  cerrado de los 22 archivos bajo `core/data/.../data/persistence` y checks
+  léxicos best-effort para referencias e imports directos, incluido el rechazo
+  de wildcards locales ordinarios. Son defensa en profundidad frente a
+  regresiones accidentales, no una frontera de seguridad ni un sustituto de
+  revisión de código.
+- **Impacto:** Un tipo o facade nueva, un helper externo o una dependencia
+  transitiva requiere revisión explícita hasta que exista tooling dedicado.
+  Esta limitación no cambia la corrección runtime de la persistencia C06, sus
+  transacciones, reconstrucción fail-closed ni protección del envelope.
+- **Motivo por el que no está completa:** C06 no incorpora scanner de JAR o
+  bytecode, parser de metadata Kotlin, plugin del compilador, regla Detekt
+  personalizada ni análisis completo del grafo de dependencias.
+- **Dependencias:** Definición del baseline binario Android, política de packages
+  del agente, selección de tooling y gates de calidad/CI de C13–C14.
+- **Riesgos:** Tratar checks de tests modificables como frontera de seguridad,
+  introducir falsos positivos frágiles o declarar compatibilidad sin cubrir
+  bytecode generado y dependencias transitivas.
+- **Workaround actual:** Snapshot de tipos conocidos, inventario cerrado del
+  árbol `data/persistence`, checks best-effort de imports/referencias y revisión
+  obligatoria de toda nueva superficie pública o helper externo.
+- **Criterios de aceptación:** Seleccionar y versionar el mecanismo; fijar un
+  baseline de API pública; validar nuevas facades y tipos; aplicar reglas de
+  packages/imports; analizar helpers externos y dependencias transitivas; y
+  ejecutar regresiones positivas/negativas en CI sin modificar producción para
+  sortear el gate.
+- **Evidencia actual:** `ProtectedEnrollmentSecurityTest.kt` y
+  `docs/phase08/c06-protected-enrollment-persistence.md` documentan el snapshot,
+  inventario y límites vigentes.
+- **Evidencia de validación requerida:** Casos con nueva facade, nuevo tipo
+  público, wildcard local, helper externo y dependencia transitiva, además de
+  compatibilidad en toolchains Android/Linux/Windows usados por CI.
+- **Decisión pendiente:** Herramienta concreta —binary compatibility validator,
+  regla Detekt, plugin de compilador o análisis de dependencias— y su ubicación
+  definitiva en C13, C14 o una fase posterior.
+- **Fase futura sugerida:** Fase 08 C13/C14 o future work posterior.
+- **Última revisión:** 2026-07-23.
 
 ### FW-MOB-002 — Agente iOS/iPadOS nativo
 

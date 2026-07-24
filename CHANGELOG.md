@@ -8,6 +8,14 @@ Versioning cuando existan releases publicadas.
 
 ## Unreleased
 
+- Agregada la persistencia Android C06 con Room v2: tabla singleton
+  `protected_enrollment`, migración explícita 1→2 sin backfill, identidad
+  backend y metadata `ACTIVE`, envelope AES-GCM C05, reconstrucción
+  fail-closed, resultados `Unsupported`/`Corrupt` separados, equivalencia que
+  preserva ciphertext, rotación monotónica, bloqueo del cambio de servidor,
+  transacciones verificadas y tests de migración, SQL adversarial, seguridad y
+  concurrencia. No persiste plaintext o token, no depende de
+  `CredentialProtector` y no implementa coordinador ni networking.
 - Agregada la base criptográfica Android C05: port JVM puro, envelope/AAD v1
   cerrados, clave AES-256-GCM administrada por Android Keystore, lifecycle
   idempotente, descifrado callback-scoped, redacción, zeroization best-effort y

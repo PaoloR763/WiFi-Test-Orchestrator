@@ -27,7 +27,7 @@ import kotlin.test.assertTrue
 @RunWith(RobolectricTestRunner::class)
 internal class WtoAgentDatabaseTest : RoomPersistenceTestBase() {
     @Test
-    fun `fresh v1 database is created under no backup with WAL and foreign keys`() = runTest {
+    fun `fresh v2 database is created under no backup with WAL and foreign keys`() = runTest {
         val name = newDatabaseName("wto-fresh")
         val database = openDatabase(name)
 
@@ -42,9 +42,9 @@ internal class WtoAgentDatabaseTest : RoomPersistenceTestBase() {
         assertProductFilesConfined(name)
         assertEquals("wal", scalarString(database, "PRAGMA journal_mode").lowercase())
         assertEquals(1L, scalarLong(database, "PRAGMA foreign_keys"))
-        assertEquals(1L, scalarLong(database, "PRAGMA user_version"))
+        assertEquals(2L, scalarLong(database, "PRAGMA user_version"))
         assertEquals(
-            "2a33bf103f9927f13a8246f20d09ad8e",
+            "412e402cf0ccad7079c1d70488cbea1b",
             scalarString(
                 database,
                 "SELECT identity_hash FROM room_master_table WHERE id = 42",
@@ -68,7 +68,7 @@ internal class WtoAgentDatabaseTest : RoomPersistenceTestBase() {
         repository(first).readLocalState()
         first.close()
         val file = databaseFile(name)
-        setUserVersion(file, 2)
+        setUserVersion(file, 3)
         val beforeKey = fileKey(file)
         val beforeLength = file.length()
 
@@ -81,7 +81,7 @@ internal class WtoAgentDatabaseTest : RoomPersistenceTestBase() {
         assertTrue(file.isFile)
         assertEquals(beforeLength, file.length())
         assertStableFileKey(beforeKey, fileKey(file))
-        assertEquals(2, readUserVersion(file))
+        assertEquals(3, readUserVersion(file))
     }
 
     @Test

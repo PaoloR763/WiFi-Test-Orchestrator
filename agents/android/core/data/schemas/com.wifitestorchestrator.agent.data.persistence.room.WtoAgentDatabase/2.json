@@ -1,0 +1,259 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 2,
+    "identityHash": "412e402cf0ccad7079c1d70488cbea1b",
+    "entities": [
+      {
+        "tableName": "local_installation",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`singleton_id` INTEGER NOT NULL, `installation_id` TEXT NOT NULL, `created_at_epoch_seconds` INTEGER NOT NULL, `created_at_nanoseconds` INTEGER NOT NULL, PRIMARY KEY(`singleton_id`))",
+        "fields": [
+          {
+            "fieldPath": "singletonId",
+            "columnName": "singleton_id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "installationId",
+            "columnName": "installation_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAtEpochSeconds",
+            "columnName": "created_at_epoch_seconds",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAtNanoseconds",
+            "columnName": "created_at_nanoseconds",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "singleton_id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_local_installation_installation_id",
+            "unique": true,
+            "columnNames": [
+              "installation_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_local_installation_installation_id` ON `${TABLE_NAME}` (`installation_id`)"
+          }
+        ]
+      },
+      {
+        "tableName": "server_configuration",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`singleton_id` INTEGER NOT NULL, `base_url` TEXT NOT NULL, `updated_at_epoch_seconds` INTEGER NOT NULL, `updated_at_nanoseconds` INTEGER NOT NULL, PRIMARY KEY(`singleton_id`), FOREIGN KEY(`singleton_id`) REFERENCES `local_installation`(`singleton_id`) ON UPDATE NO ACTION ON DELETE RESTRICT )",
+        "fields": [
+          {
+            "fieldPath": "singletonId",
+            "columnName": "singleton_id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "baseUrl",
+            "columnName": "base_url",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAtEpochSeconds",
+            "columnName": "updated_at_epoch_seconds",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAtNanoseconds",
+            "columnName": "updated_at_nanoseconds",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "singleton_id"
+          ]
+        },
+        "foreignKeys": [
+          {
+            "table": "local_installation",
+            "onDelete": "RESTRICT",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "singleton_id"
+            ],
+            "referencedColumns": [
+              "singleton_id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "protected_enrollment",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`singleton_id` INTEGER NOT NULL, `installation_id` TEXT NOT NULL, `server_base_url` TEXT NOT NULL, `agent_id` TEXT NOT NULL, `device_id` TEXT NOT NULL, `protocol_version` TEXT NOT NULL, `server_received_at_epoch_seconds` INTEGER NOT NULL, `server_received_at_nanoseconds` INTEGER NOT NULL, `credential_id` TEXT NOT NULL, `credential_version` INTEGER NOT NULL, `issued_at_epoch_seconds` INTEGER NOT NULL, `issued_at_nanoseconds` INTEGER NOT NULL, `expires_at_epoch_seconds` INTEGER NOT NULL, `expires_at_nanoseconds` INTEGER NOT NULL, `credential_delivery_state` TEXT NOT NULL, `crypto_version` INTEGER NOT NULL, `key_alias` TEXT NOT NULL, `nonce` BLOB NOT NULL, `sealed_credential` BLOB NOT NULL, PRIMARY KEY(`singleton_id`), FOREIGN KEY(`singleton_id`) REFERENCES `local_installation`(`singleton_id`) ON UPDATE NO ACTION ON DELETE RESTRICT , FOREIGN KEY(`singleton_id`) REFERENCES `server_configuration`(`singleton_id`) ON UPDATE NO ACTION ON DELETE RESTRICT )",
+        "fields": [
+          {
+            "fieldPath": "singletonId",
+            "columnName": "singleton_id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "installationId",
+            "columnName": "installation_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "serverBaseUrl",
+            "columnName": "server_base_url",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "agentId",
+            "columnName": "agent_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "deviceId",
+            "columnName": "device_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "protocolVersion",
+            "columnName": "protocol_version",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "serverReceivedAtEpochSeconds",
+            "columnName": "server_received_at_epoch_seconds",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "serverReceivedAtNanoseconds",
+            "columnName": "server_received_at_nanoseconds",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "credentialId",
+            "columnName": "credential_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "credentialVersion",
+            "columnName": "credential_version",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "issuedAtEpochSeconds",
+            "columnName": "issued_at_epoch_seconds",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "issuedAtNanoseconds",
+            "columnName": "issued_at_nanoseconds",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "expiresAtEpochSeconds",
+            "columnName": "expires_at_epoch_seconds",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "expiresAtNanoseconds",
+            "columnName": "expires_at_nanoseconds",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "credentialDeliveryState",
+            "columnName": "credential_delivery_state",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "cryptoVersion",
+            "columnName": "crypto_version",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "keyAlias",
+            "columnName": "key_alias",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "nonce",
+            "columnName": "nonce",
+            "affinity": "BLOB",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sealedCredential",
+            "columnName": "sealed_credential",
+            "affinity": "BLOB",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "singleton_id"
+          ]
+        },
+        "foreignKeys": [
+          {
+            "table": "local_installation",
+            "onDelete": "RESTRICT",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "singleton_id"
+            ],
+            "referencedColumns": [
+              "singleton_id"
+            ]
+          },
+          {
+            "table": "server_configuration",
+            "onDelete": "RESTRICT",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "singleton_id"
+            ],
+            "referencedColumns": [
+              "singleton_id"
+            ]
+          }
+        ]
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '412e402cf0ccad7079c1d70488cbea1b')"
+    ]
+  }
+}

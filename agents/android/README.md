@@ -2,10 +2,11 @@
 
 Este directorio contiene el bootstrap reproducible C01, los contratos wire de
 enrolamiento C02A, el dominio base puro C02B, la integración inicial de
-enrolamiento C03 y la base de persistencia local Room C04. El proyecto sigue
-sin pantallas, actividades, servicios, capabilities, credentials persistidas
-ni ejecución durable del agente. C05 agrega protección criptográfica en memoria
-con Android Keystore, pero no compone ni persiste todavía ese flujo.
+enrolamiento C03, la base Room C04, la protección Android Keystore C05 y la
+persistencia del enrolamiento protegido C06. El proyecto sigue sin pantallas,
+actividades, servicios, capabilities ni coordinador de enrolamiento. C06 puede
+conservar de forma durable una credential `ACTIVE` ya protegida, pero no consume
+tokens, invoca Keystore, ejecuta red ni compone todavía ese flujo desde `:app`.
 
 ## Toolchain
 
@@ -40,14 +41,15 @@ compatible.
   secretos, credenciales, aceptación factual de enrolamiento C02B y el port y
   modelos criptográficos puros C05.
 - `:core:data`: biblioteca Android con mapping, JSON estricto y transporte HTTPS
-  de enrolamiento C03, más persistencia Room no sensible C04; depende de domain
-  y contracts.
+  de enrolamiento C03, persistencia local C04 y el repositorio Room v2 C06 para
+  identidad backend, metadata `ACTIVE` y envelope cifrado; depende de domain y
+  contracts.
 - `:core:platform`: biblioteca Android con el adapter Android Keystore/AES-GCM
   C05; depende únicamente de domain.
 
 C03 no introduce composición general: `:app` sólo inicializa explícitamente el
 runtime Android público de OkHttp mediante una fachada de `:core:data`. C05 no
-modifica ese composition root ni crea claves eager.
+crea claves eager y C06 tampoco modifica ese composition root.
 
 ## Contratos wire C02A
 
@@ -167,18 +169,26 @@ permanece desactivado.
 La referencia detallada, taxonomías, cobertura y deudas conocidas están en
 [`docs/phase08/c03-enrollment-transport.md`](../../docs/phase08/c03-enrollment-transport.md).
 
-## Persistencia local Room C04
+## Persistencia local Room C04/C06
 
-`:core:data` incorpora una base Room v1 llamada `wto-agent.db`, ubicada mediante
-la API pública SQLite/AndroidX bajo `applicationContext.noBackupFilesDir`. Sólo
-contiene dos tablas y ocho columnas: instalación local, servidor actual y sus
-timestamps `(epoch seconds, nanoseconds)`. No contiene identidad backend,
-estado de enrolamiento, metadata de credentials, secretos, cuerpos ni errores.
+`:core:data` incorpora una base llamada `wto-agent.db`, ubicada mediante la API
+pública SQLite/AndroidX bajo `applicationContext.noBackupFilesDir`. C04 publicó
+Room v1 con dos tablas y ocho columnas para instalación local, servidor actual
+y timestamps `(epoch seconds, nanoseconds)`. C06 migra explícitamente a v2 y
+agrega sólo `protected_enrollment`, vinculada por el mismo singleton a ambas
+tablas C04. El schema v1 permanece byte-idéntico y v2 no hace backfill.
 
-La factory pública captura `applicationContext` y entrega un repositorio lazy;
-la base no se construye ni abre hasta la primera operación y existe una única
-instancia por proceso. Entities, DAO, database y helper permanecen `internal`.
-Las lecturas conjuntas y escrituras compuestas son transaccionales, las
+La tabla C06 conserva identidad backend, protocolo, tiempos y metadata de una
+credential exactamente `ACTIVE`, junto con crypto version, alias, nonce y
+sealed credential C05. No persiste token, plaintext, claves, headers ni
+request/response JSON. Un state `PENDING` almacenado se clasifica
+`Unsupported`; state desconocido o estructura inválida es `Corrupt`.
+
+La factory pública captura `applicationContext` y entrega ambos repositorios
+lazy; la base no se construye ni abre hasta la primera operación y existe una
+única instancia por proceso. Entities, DAO, database y helper permanecen
+`internal`. Las lecturas y escrituras C06 son transaccionales, releen el estado
+antes del commit y preservan byte por byte el envelope en equivalencia. Las
 consultas en main thread siguen prohibidas, WAL está fijado y no existen delete,
 reset, replace ni fallback destructivo.
 
@@ -189,8 +199,7 @@ y device transfer. Tests JVM herméticos usan Room/SQLite real mediante
 Robolectric 4.16.1, SDK 29 exacto y resolución offline del artifact preparado
 por Gradle.
 
-La arquitectura, schema, API, atomicidad, backup, corrupción, límites de C05/C06
-y evidencia de tests se detallan en
+La base C04 y sus límites originales se detallan en
 [`docs/phase08/c04-room-persistence.md`](../../docs/phase08/c04-room-persistence.md).
 
 ## Protección criptográfica C05
@@ -215,9 +224,8 @@ copias internas que no son zeroizables con garantía.
 
 Keystore almacena la clave, no el bearer credential. C05 produce en memoria un
 envelope con crypto version, alias, credential ID/version, nonce y sealed
-credential, pero no lo serializa ni lo escribe en Room. C06 deberá incorporar
-Room v2 y coordinar identidad, metadata y envelope antes de afirmar
-enrolamiento durable.
+credential. C06 escribe ese envelope ya protegido en Room v2 junto con identidad
+y metadata, sin depender de `CredentialProtector` ni recibir el plaintext.
 
 La validación de una clave existente es fail-closed. Android recién expone
 `KeyInfo.isUnlockedDeviceRequired()` en API 36.1. En API 29–36.0 C05 conserva el
@@ -232,6 +240,34 @@ reboot e invalidación queda `NOT RUN` hasta C12.
 La policy, formato AAD, golden vector, taxonomía de errores, threat model,
 compatibilidad por API y matriz de evidencia están en
 [`docs/phase08/c05-android-keystore.md`](../../docs/phase08/c05-android-keystore.md).
+
+## Persistencia del enrolamiento protegido C06
+
+`ProtectedEnrollmentRepository` expone `preflight`, `read` y `persist`. Sus
+resultados cerrados distinguen ausencia, fila compatible, primera escritura,
+equivalencia, reemplazo, conflicto, rollback, candidato `PENDING`, corrupción,
+estado no soportado y fallo de almacenamiento.
+
+Una rotación sólo reemplaza una credential con ID diferente, versión superior,
+state `ACTIVE` y la misma identidad backend. Mismo ID con versión diferente o
+IDs diferentes con igual versión son conflictos; una versión inferior nunca
+sobrescribe una superior. Un write equivalente no reemplaza el envelope aunque
+el nonce aleatorio produzca otro ciphertext.
+
+Después de un enrolamiento compatible, la URL del servidor queda inmutable:
+la misma URL es idempotente y una diferente devuelve `Conflict`. Una fila
+`Corrupt` o `Unsupported` bloquea la operación sin mutar nada.
+
+C06 garantiza atomicidad SQLite, no atomicidad entre backend, Keystore y Room.
+El coordinador futuro deberá adquirir su mutex, repetir el preflight dentro del
+mutex y mantenerlo durante preparación de clave, request, protección y
+persistencia. C06 no implementa ese coordinador ni el mutex.
+
+Room no cifra el archivo completo. El bearer secret queda protegido por el
+envelope AES-GCM C05; sólo nonce y ciphertext se escriben como BLOB. La
+arquitectura, schema de 19 columnas, clasificación, reglas de concurrencia,
+migración, seguridad y límites se documentan en
+[`docs/phase08/c06-protected-enrollment-persistence.md`](../../docs/phase08/c06-protected-enrollment-persistence.md).
 
 ## Generación verificada del Wrapper
 

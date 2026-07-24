@@ -39,20 +39,36 @@ internal class RoomLocalStateRepository(
                     val database = databaseProvider.get()
                     database.withTransaction {
                         val dao = database.localStateDao()
-                        val before = dao.readLocalStateRows().toMappedLocalState()
-                        when (before) {
-                            MappedLocalState.Absent -> {
-                                val inserted = dao.insertInstallation(localIdentity.toEntity(createdAt))
-                                val after = dao.readLocalStateRows().toMappedLocalState()
-                                classifyEnsuredInstallation(after, localIdentity, inserted != -1L)
-                            }
-                            is MappedLocalState.InstallationOnly ->
-                                classifyExistingInstallation(before.installation.localIdentity, localIdentity)
-                            is MappedLocalState.Configured ->
-                                classifyExistingInstallation(before.installation.localIdentity, localIdentity)
-                            MappedLocalState.Incomplete ->
+                        val state = database.readParentMutationState()
+                        when (state.enrollment) {
+                            MappedProtectedEnrollment.Corrupt ->
                                 EnsureLocalInstallationResult.Failure(
-                                    LocalPersistenceError.STATE_INCOMPLETE,
+                                    LocalPersistenceError.CORRUPTION,
+                                )
+                            MappedProtectedEnrollment.Unsupported ->
+                                EnsureLocalInstallationResult.Failure(
+                                    LocalPersistenceError.STATE_CONFLICT,
+                                )
+                            is MappedProtectedEnrollment.Compatible ->
+                                when (val localState = state.localState) {
+                                    is MappedLocalState.Configured ->
+                                        classifyExistingInstallation(
+                                            localState.installation.localIdentity,
+                                            localIdentity,
+                                        )
+                                    MappedLocalState.Absent,
+                                    is MappedLocalState.InstallationOnly,
+                                    MappedLocalState.Incomplete,
+                                    -> EnsureLocalInstallationResult.Failure(
+                                        LocalPersistenceError.CORRUPTION,
+                                    )
+                                }
+                            MappedProtectedEnrollment.Absent ->
+                                ensureWithoutDurableEnrollment(
+                                    dao = dao,
+                                    current = state.localState,
+                                    localIdentity = localIdentity,
+                                    createdAt = createdAt,
                                 )
                         }
                     }
@@ -73,13 +89,41 @@ internal class RoomLocalStateRepository(
                 executeStorageOperation {
                     val database = databaseProvider.get()
                     database.withTransaction {
-                        initializeInsideTransaction(
-                            database = database,
-                            localIdentity = localIdentity,
-                            serverConfiguration = serverConfiguration,
-                            installationCreatedAt = installationCreatedAt,
-                            serverConfigurationUpdatedAt = serverConfigurationUpdatedAt,
-                        )
+                        val state = database.readParentMutationState()
+                        when (state.enrollment) {
+                            MappedProtectedEnrollment.Corrupt ->
+                                InitializeLocalStateResult.Failure(
+                                    LocalPersistenceError.CORRUPTION,
+                                )
+                            MappedProtectedEnrollment.Unsupported ->
+                                InitializeLocalStateResult.Failure(
+                                    LocalPersistenceError.STATE_CONFLICT,
+                                )
+                            is MappedProtectedEnrollment.Compatible ->
+                                when (val localState = state.localState) {
+                                    is MappedLocalState.Configured ->
+                                        classifyConfiguredInitialization(
+                                            current = localState,
+                                            localIdentity = localIdentity,
+                                            serverConfiguration = serverConfiguration,
+                                        )
+                                    MappedLocalState.Absent,
+                                    is MappedLocalState.InstallationOnly,
+                                    MappedLocalState.Incomplete,
+                                    -> InitializeLocalStateResult.Failure(
+                                        LocalPersistenceError.CORRUPTION,
+                                    )
+                                }
+                            MappedProtectedEnrollment.Absent ->
+                                initializeWithoutDurableEnrollment(
+                                    database = database,
+                                    current = state.localState,
+                                    localIdentity = localIdentity,
+                                    serverConfiguration = serverConfiguration,
+                                    installationCreatedAt = installationCreatedAt,
+                                    serverConfigurationUpdatedAt = serverConfigurationUpdatedAt,
+                                )
+                        }
                     }
                 }
         ) {
@@ -97,35 +141,34 @@ internal class RoomLocalStateRepository(
                     val database = databaseProvider.get()
                     database.withTransaction {
                         val dao = database.localStateDao()
-                        when (val current = dao.readLocalStateRows().toMappedLocalState()) {
-                            MappedLocalState.Absent ->
-                                SetServerConfigurationResult.Failure(
-                                    LocalPersistenceError.STATE_INCOMPLETE,
-                                )
-                            is MappedLocalState.InstallationOnly -> {
-                                dao.insertServerConfiguration(serverConfiguration.toEntity(updatedAt))
-                                SetServerConfigurationResult.Created
-                            }
-                            is MappedLocalState.Configured -> {
-                                if (current.serverConfiguration.configuration == serverConfiguration) {
-                                    SetServerConfigurationResult.Unchanged
-                                } else {
-                                    val updated =
-                                        dao.updateServerConfiguration(
-                                            serverConfiguration.toEntity(updatedAt),
-                                        )
-                                    if (updated == 1) {
-                                        SetServerConfigurationResult.Updated
-                                    } else {
-                                        SetServerConfigurationResult.Failure(
-                                            LocalPersistenceError.STATE_INCOMPLETE,
-                                        )
-                                    }
+                        val state = database.readParentMutationState()
+                        when (state.enrollment) {
+                            MappedProtectedEnrollment.Corrupt ->
+                                SetServerConfigurationResult.Corrupt
+                            MappedProtectedEnrollment.Unsupported ->
+                                SetServerConfigurationResult.Unsupported
+                            is MappedProtectedEnrollment.Compatible ->
+                                when (val localState = state.localState) {
+                                    is MappedLocalState.Configured ->
+                                        if (
+                                            localState.serverConfiguration.configuration ==
+                                            serverConfiguration
+                                        ) {
+                                            SetServerConfigurationResult.Unchanged
+                                        } else {
+                                            SetServerConfigurationResult.Conflict
+                                        }
+                                    MappedLocalState.Absent,
+                                    is MappedLocalState.InstallationOnly,
+                                    MappedLocalState.Incomplete,
+                                    -> SetServerConfigurationResult.Corrupt
                                 }
-                            }
-                            MappedLocalState.Incomplete ->
-                                SetServerConfigurationResult.Failure(
-                                    LocalPersistenceError.STATE_INCOMPLETE,
+                            MappedProtectedEnrollment.Absent ->
+                                setServerWithoutDurableEnrollment(
+                                    dao = dao,
+                                    current = state.localState,
+                                    serverConfiguration = serverConfiguration,
+                                    updatedAt = updatedAt,
                                 )
                         }
                     }
@@ -135,8 +178,9 @@ internal class RoomLocalStateRepository(
             is StorageExecution.Failure -> SetServerConfigurationResult.Failure(execution.error)
         }
 
-    private suspend fun initializeInsideTransaction(
+    private suspend fun initializeWithoutDurableEnrollment(
         database: WtoAgentDatabase,
+        current: MappedLocalState,
         localIdentity: LocalInstallationIdentity,
         serverConfiguration: ServerConfiguration,
         installationCreatedAt: Instant,
@@ -144,7 +188,7 @@ internal class RoomLocalStateRepository(
     ): InitializeLocalStateResult {
         val dao = database.localStateDao()
         var created = false
-        when (val current = dao.readLocalStateRows().toMappedLocalState()) {
+        when (current) {
             MappedLocalState.Absent -> {
                 val inserted = dao.insertInstallation(localIdentity.toEntity(installationCreatedAt))
                 created = inserted != -1L
@@ -204,8 +248,70 @@ internal class RoomLocalStateRepository(
             InitializeLocalStateResult.ExistingEquivalent
         } else {
             InitializeLocalStateResult.Conflict
-        }
+    }
 }
+
+private data class ParentMutationState(
+    val localState: MappedLocalState,
+    val enrollment: MappedProtectedEnrollment,
+)
+
+private suspend fun WtoAgentDatabase.readParentMutationState(): ParentMutationState {
+    val localState = localStateDao().readLocalStateRows().toMappedLocalState()
+    val enrollment = mapProtectedEnrollment(localState, observeProtectedEnrollmentRows())
+    return ParentMutationState(localState = localState, enrollment = enrollment)
+}
+
+private suspend fun ensureWithoutDurableEnrollment(
+    dao: LocalStateDao,
+    current: MappedLocalState,
+    localIdentity: LocalInstallationIdentity,
+    createdAt: Instant,
+): EnsureLocalInstallationResult =
+    when (current) {
+        MappedLocalState.Absent -> {
+            val inserted = dao.insertInstallation(localIdentity.toEntity(createdAt))
+            val after = dao.readLocalStateRows().toMappedLocalState()
+            classifyEnsuredInstallation(after, localIdentity, inserted != -1L)
+        }
+        is MappedLocalState.InstallationOnly ->
+            classifyExistingInstallation(current.installation.localIdentity, localIdentity)
+        is MappedLocalState.Configured ->
+            classifyExistingInstallation(current.installation.localIdentity, localIdentity)
+        MappedLocalState.Incomplete ->
+            EnsureLocalInstallationResult.Failure(LocalPersistenceError.STATE_INCOMPLETE)
+    }
+
+private suspend fun setServerWithoutDurableEnrollment(
+    dao: LocalStateDao,
+    current: MappedLocalState,
+    serverConfiguration: ServerConfiguration,
+    updatedAt: Instant,
+): SetServerConfigurationResult =
+    when (current) {
+        MappedLocalState.Absent ->
+            SetServerConfigurationResult.Failure(LocalPersistenceError.STATE_INCOMPLETE)
+        is MappedLocalState.InstallationOnly -> {
+            dao.insertServerConfiguration(serverConfiguration.toEntity(updatedAt))
+            SetServerConfigurationResult.Created
+        }
+        is MappedLocalState.Configured -> {
+            if (current.serverConfiguration.configuration == serverConfiguration) {
+                SetServerConfigurationResult.Unchanged
+            } else {
+                val updated = dao.updateServerConfiguration(serverConfiguration.toEntity(updatedAt))
+                if (updated == 1) {
+                    SetServerConfigurationResult.Updated
+                } else {
+                    SetServerConfigurationResult.Failure(
+                        LocalPersistenceError.STATE_INCOMPLETE,
+                    )
+                }
+            }
+        }
+        MappedLocalState.Incomplete ->
+            SetServerConfigurationResult.Failure(LocalPersistenceError.STATE_INCOMPLETE)
+    }
 
 private fun MappedLocalState.toReadResult(): ReadLocalStateResult =
     when (this) {

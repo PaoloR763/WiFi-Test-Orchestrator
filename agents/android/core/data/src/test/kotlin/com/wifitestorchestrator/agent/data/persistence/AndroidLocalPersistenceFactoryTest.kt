@@ -35,6 +35,7 @@ internal class AndroidLocalPersistenceFactoryTest : RoomPersistenceTestBase() {
         val factory = AndroidLocalPersistenceFactory(context)
         assertEquals(before, productStorageSnapshot())
         factory.create()
+        factory.createProtectedEnrollmentRepository()
 
         assertEquals(before, productStorageSnapshot())
     }
@@ -85,9 +86,25 @@ internal class AndroidLocalPersistenceFactoryTest : RoomPersistenceTestBase() {
 
     @Test
     fun `public repository API does not expose close`() {
-        val methodNames = LocalStateRepository::class.java.methods.map { it.name }.toSet()
+        val methodNames =
+            listOf(
+                LocalStateRepository::class.java,
+                ProtectedEnrollmentRepository::class.java,
+            ).flatMap { type -> type.methods.map { it.name } }
+                .toSet()
 
         assertFalse("close" in methodNames)
+    }
+
+    @Test
+    fun `factory memoizes both repository ports without composing enrollment`() {
+        val factory = AndroidLocalPersistenceFactory(context)
+
+        assertSame(factory.create(), factory.create())
+        assertSame(
+            factory.createProtectedEnrollmentRepository(),
+            factory.createProtectedEnrollmentRepository(),
+        )
     }
 
     private fun assertProductFilesConfined() {

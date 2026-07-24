@@ -56,5 +56,11 @@ sealed interface SetServerConfigurationResult {
 
     data object Unchanged : SetServerConfigurationResult
 
+    data object Conflict : SetServerConfigurationResult
+
+    data object Corrupt : SetServerConfigurationResult
+
+    data object Unsupported : SetServerConfigurationResult
+
     data class Failure(val error: LocalPersistenceError) : SetServerConfigurationResult
 }
