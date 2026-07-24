@@ -36,7 +36,8 @@ No existe dependencia productiva entre `:core:data` y `:core:platform`.
 
 - C03 obtiene una aceptación del backend y todavía conserva la credential en
   memoria.
-- Un coordinador futuro deberá pedir a C05 que proteja la credential.
+- C07 pide a C05 que proteja la credential inmediatamente después de la
+  aceptación.
 - C06 recibe únicamente `ProtectedCredentialEnvelope` más metadata no secreta.
 - Room persiste campos explícitos; no serializa objetos Kotlin, DTOs ni JSON
   opaco.
@@ -435,21 +436,26 @@ Un dispositivo desbloqueado comprometido, root, hooking o lectura del proceso
 puede observar plaintext mientras otra fase lo usa; C06 no afirma protección
 contra ese atacante ni cifrado integral de metadata.
 
-## Orden obligatorio del coordinador futuro
+## Orden implementado por el coordinador C07
 
-Una fase posterior deberá mantener exactamente este orden:
+C07 mantiene este orden:
 
-1. adquirir el mutex de enrolamiento;
-2. repetir dentro del mutex el `preflight` autoritativo;
-3. preparar o verificar la clave según la policy del coordinador;
-4. ejecutar la solicitud;
-5. proteger la credential;
-6. persistir mediante C06;
-7. liberar el mutex.
+1. construir fuera del mutex un `EnrollmentAttempt` validado;
+2. adquirir el mutex de enrolamiento de proceso;
+3. repetir dentro del mutex el `preflight` autoritativo;
+4. resolver estados bloqueantes sin Keystore o red;
+5. ejecutar `inspect()` sólo para `Compatible`, o autorizar el guard y ejecutar
+   `prepare()` sólo para `Absent`;
+6. crear y ejecutar una única llamada;
+7. validar la aceptación y proteger inmediatamente la credential;
+8. persistir mediante C06;
+9. ante persistencia incierta, ejecutar una única reconciliación read-only;
+10. actualizar sin suspensión el guard y liberar el mutex.
 
-El mutex debe permanecer adquirido durante solicitud, protección y
-persistencia. C06 no implementa ese mutex ni consume tokens. Un preflight fuera
-del mutex nunca sustituye el paso 2.
+El mutex permanece adquirido durante Keystore, solicitud, protección,
+persistencia y reconciliación. C06 no implementa ese mutex ni consume tokens;
+C07 lo hace sin modificar C06. Un preflight fuera del mutex nunca sustituye el
+paso 3.
 
 ## Evidencia host y límites pendientes
 
@@ -460,9 +466,8 @@ process death, restore, uninstall ni comportamiento OEM real.
 
 Permanecen diferidos:
 
-- coordinador C07 y política de recuperación tras fallos entre backend,
-  Keystore y Room;
-- composición desde `:app`;
+- journal durable y reconciliación remota tras fallos entre backend, Keystore y
+  Room (`FW-MOB-004`);
 - uso autenticado de la credential persistida;
 - lifecycle, WorkManager, Foreground Service y UI;
 - instrumentación C12 en emulador y dispositivo físico;

@@ -8,6 +8,13 @@ Versioning cuando existan releases publicadas.
 
 ## Unreleased
 
+- Agregado el coordinador de enrolamiento Android C07 en `:core:data`: intento
+  efímero congelado, mutex y guard globales de proceso, preflight C06 antes de
+  Keystore, `inspect`/`prepare` excluyentes, bridge cancellable para una única
+  llamada C03, protección inmediata C05, persistencia C06, reconciliación
+  read-only acotada, resultados cerrados/redactados y composición lazy desde
+  `:app`. No incorpora retries automáticos, UI, lifecycle, nuevos contratos,
+  endpoints, permisos, schemas o migraciones.
 - Agregada la persistencia Android C06 con Room v2: tabla singleton
   `protected_enrollment`, migración explícita 1→2 sin backfill, identidad
   backend y metadata `ACTIVE`, envelope AES-GCM C05, reconstrucción

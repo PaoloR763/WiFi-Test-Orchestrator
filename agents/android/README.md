@@ -2,11 +2,12 @@
 
 Este directorio contiene el bootstrap reproducible C01, los contratos wire de
 enrolamiento C02A, el dominio base puro C02B, la integración inicial de
-enrolamiento C03, la base Room C04, la protección Android Keystore C05 y la
-persistencia del enrolamiento protegido C06. El proyecto sigue sin pantallas,
-actividades, servicios, capabilities ni coordinador de enrolamiento. C06 puede
-conservar de forma durable una credential `ACTIVE` ya protegida, pero no consume
-tokens, invoca Keystore, ejecuta red ni compone todavía ese flujo desde `:app`.
+enrolamiento C03, la base Room C04, la protección Android Keystore C05, la
+persistencia del enrolamiento protegido C06 y el coordinador C07. El proyecto
+sigue sin pantallas, actividades, servicios, WorkManager, capabilities, probes
+ni lifecycle operativo. C07 integra en memoria C03–C06, con mutex/guard de
+proceso, protección inmediata, persistencia durable y composición lazy desde
+`:app`.
 
 ## Toolchain
 
@@ -41,15 +42,16 @@ compatible.
   secretos, credenciales, aceptación factual de enrolamiento C02B y el port y
   modelos criptográficos puros C05.
 - `:core:data`: biblioteca Android con mapping, JSON estricto y transporte HTTPS
-  de enrolamiento C03, persistencia local C04 y el repositorio Room v2 C06 para
-  identidad backend, metadata `ACTIVE` y envelope cifrado; depende de domain y
-  contracts.
+  de enrolamiento C03, persistencia local C04, el repositorio Room v2 C06 y el
+  coordinador C07 para identidad backend, metadata `ACTIVE` y envelope cifrado;
+  depende de domain y contracts, nunca de platform.
 - `:core:platform`: biblioteca Android con el adapter Android Keystore/AES-GCM
   C05; depende únicamente de domain.
 
-C03 no introduce composición general: `:app` sólo inicializa explícitamente el
-runtime Android público de OkHttp mediante una fachada de `:core:data`. C05 no
-crea claves eager y C06 tampoco modifica ese composition root.
+C07 agrega `AndroidAgentCompositionRoot`: compone lazy el cliente C03, el
+repositorio C06, el protector C05 y la factory pública del coordinador. La
+construcción y `Application.onCreate()` no abren Room o Keystore, no crean
+requests, no consumen tokens y no inician coroutines o red.
 
 ## Contratos wire C02A
 
@@ -259,15 +261,39 @@ la misma URL es idempotente y una diferente devuelve `Conflict`. Una fila
 `Corrupt` o `Unsupported` bloquea la operación sin mutar nada.
 
 C06 garantiza atomicidad SQLite, no atomicidad entre backend, Keystore y Room.
-El coordinador futuro deberá adquirir su mutex, repetir el preflight dentro del
-mutex y mantenerlo durante preparación de clave, request, protección y
-persistencia. C06 no implementa ese coordinador ni el mutex.
+C07 adquiere un mutex global de proceso, repite el preflight dentro de él y lo
+mantiene durante Keystore, request único, protección, persistencia y una posible
+reconciliación read-only. El guard de ambigüedad es intencionalmente no durable.
 
 Room no cifra el archivo completo. El bearer secret queda protegido por el
 envelope AES-GCM C05; sólo nonce y ciphertext se escriben como BLOB. La
 arquitectura, schema de 19 columnas, clasificación, reglas de concurrencia,
 migración, seguridad y límites se documentan en
 [`docs/phase08/c06-protected-enrollment-persistence.md`](../../docs/phase08/c06-protected-enrollment-persistence.md).
+
+## Coordinador de enrolamiento C07
+
+`EnrollmentAttempt` congela token, idempotency key, correlation ID,
+`agent_reported_at`, identidad, servidor y payload. Sólo un retry manual con ese
+mismo objeto vivo está permitido; C07 no promete una ventana de 15 minutos,
+porque clock skew y validación del token preceden al replay idempotente del
+backend.
+
+El preflight C06 siempre ocurre antes de Keystore. `Absent` usa sólo
+`prepare()`; `Compatible` usa sólo `inspect()` y puede devolver
+`AlreadyEnrolled` sin descifrar el envelope. TLS, timeout, I/O, respuesta
+incompleta o cancelación posterior a `execute()` bloquean el guard de proceso;
+una aceptación seguida de fallo C05/C06 queda
+`RemoteAcceptedNotDurable`. No existen retries remotos automáticos.
+
+`Written`, `ExistingEquivalent` y `Replaced` son éxitos durables. `Replaced`
+incluye una anomalía estructurada. Sólo un `Failure` incierto de persistencia
+permite un `read()` de reconciliación y exige equivalencia C06 completa; nunca
+repite POST, protección o persistencia.
+
+La secuencia, máquina de fallos, cancelación, secretos, límites de zeroization y
+ausencia de atomicidad distribuida se detallan en
+[`docs/phase08/c07-enrollment-coordinator.md`](../../docs/phase08/c07-enrollment-coordinator.md).
 
 ## Generación verificada del Wrapper
 

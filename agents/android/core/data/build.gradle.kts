@@ -63,6 +63,7 @@ dependencies {
     implementation(project(":core:contracts"))
     implementation(project(":core:domain"))
     implementation(libs.kotlinx.serialization.json)
+    implementation(libs.kotlinx.coroutines.core)
     implementation(libs.okhttp)
     implementation(libs.androidx.room.runtime)
 

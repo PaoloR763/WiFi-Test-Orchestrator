@@ -300,19 +300,19 @@ Contradicciones o ambigüedades detectadas:
   C04 Room v1 exclusivamente no sensible; C05 port/envelope/AAD y protección
   AES-256-GCM mediante Android Keystore; C06 Room v2 persiste identidad backend,
   metadata `ACTIVE` y el envelope ya protegido con rotación monotónica y
-  servidor inmutable. No existe todavía coordinación completa, consumo seguro
-  del token bajo mutex, WorkManager, Foreground Service, UI, capabilities,
-  probes ni tareas remotas.
-- **Impacto:** La base C01–C06 puede compilarse y probarse en host, y C06 puede
+  servidor inmutable; C07 coordina C03–C06 bajo mutex y guard de proceso, sin
+  retry automático, y compone el flujo lazy desde `:app`. No existen todavía
+  WorkManager, Foreground Service, UI, capabilities, probes ni tareas remotas.
+- **Impacto:** La base C01–C07 puede compilarse y probarse en host, y C07 puede
   representar enrolamiento durable local después de recibir un envelope válido,
   pero todavía no constituye un agente Android funcional completo ni puede
   ejecutar pruebas.
   C05 distingue la limitación conocida de observabilidad unlocked-device en API
   29–36.0 y sólo acepta el alias v1 cuando todos los demás atributos son exactos;
-  desde API 36.1 exige evidencia observada `NOT_REQUIRED`. C06 no consume tokens
-  ni coordina backend, Keystore y Room; esa responsabilidad permanece diferida.
-- **Motivo por el que no está completa:** Faltan C07–C14, incluida coordinación
-  del enrolamiento, runtime/lifecycle, UI, capabilities, probes,
+  desde API 36.1 exige evidencia observada `NOT_REQUIRED`. El guard C07 se pierde
+  con process death y no reemplaza reconciliación durable.
+- **Motivo por el que no está completa:** Faltan C08–C14, incluidos
+  runtime/lifecycle, UI, capabilities, probes,
   instrumentación real, CI y cierre documental.
 - **Dependencias:** Contratos, orquestación móvil, persistencia Room v2,
   lifecycle Android y providers de probes/tráfico.
@@ -321,9 +321,9 @@ Contradicciones o ambigüedades detectadas:
   scan/background ilimitado o capacidades fuera de APIs verificadas; asumir
   evidencia positiva de unlocked-device antes de API 36.1, donde sólo existe
   una regla de compatibilidad acotada por alias y atributos observables.
-- **Workaround actual:** Ninguno que equivalga a un agente. Las capas C01–C06
+- **Workaround actual:** Ninguno que equivalga a un agente. Las capas C01–C07
   permiten continuar desarrollo y tests host sin persistir plaintext.
-- **Criterios de aceptación:** Completar C07–C14 y la matriz instrumentada al
+- **Criterios de aceptación:** Completar C08–C14 y la matriz instrumentada al
   menos en API 29 y API 36/36.1, con permisos denegados, lifecycle,
   foreground/background, cambio Wi-Fi/celular, Doze, process death, Keystore,
   backup/restore y hardware presente/ausente.
@@ -331,8 +331,8 @@ Contradicciones o ambigüedades detectadas:
   `docs/phase08/c03-enrollment-transport.md`,
   `docs/phase08/c04-room-persistence.md` y
   `docs/phase08/c05-android-keystore.md` y
-  `docs/phase08/c06-protected-enrollment-persistence.md`. C06 conserva la
-  composición fuera de `:app` y no implementa el coordinador.
+  `docs/phase08/c06-protected-enrollment-persistence.md` y
+  `docs/phase08/c07-enrollment-coordinator.md`.
 - **Evidencia de validación requerida:** Unit/instrumented tests, permisos
   denegados, foreground/background, cambio Wi-Fi/celular, Doze y terminación de
   proceso en dispositivos reales; provider `AndroidKeyStore`, `encoded == null`,
@@ -341,8 +341,9 @@ Contradicciones o ambigüedades detectadas:
 - **Decisión pendiente:** Validación instrumentada/OEM de la regla unlocked-device
   en API 29 y 36.1, matriz final de API levels, canal de distribución y prioridad
   de producto.
-- **Fase futura sugerida:** Fase 08 en curso; C07–C14 pendientes.
-- **Última revisión:** 2026-07-23.
+- **Fase futura sugerida:** Fase 08 en curso; C08–C14 pendientes, con alcance de
+  C08–C11 sujeto a validación posterior.
+- **Última revisión:** 2026-07-24.
 
 ### FW-MOB-003 — Enforcement arquitectónico estático del agente Android
 
@@ -394,6 +395,56 @@ Contradicciones o ambigüedades detectadas:
   definitiva en C13, C14 o una fase posterior.
 - **Fase futura sugerida:** Fase 08 C13/C14 o future work posterior.
 - **Última revisión:** 2026-07-23.
+
+### FW-MOB-004 — Reconciliación durable del enrolamiento Android
+
+- **Identificador estable:** `FW-MOB-004`
+- **Nombre:** Journal durable y reconciliación remota de enrolamiento Android.
+- **Área o componente:** Mobile / Android / enrollment / recovery.
+- **Estado:** `DEFERRED`.
+- **Prioridad:** `TO_BE_DECIDED`.
+- **Descripción:** Resolver de forma segura una aceptación remota cuyo resultado
+  local no quedó durable o cuyo guard C07 se perdió por process death, sin
+  repetir ciegamente un token ni crear o rotar credenciales.
+- **Comportamiento actual:** C07 mantiene un guard únicamente en memoria,
+  permite retry manual con el mismo `EnrollmentAttempt` vivo y, después de un
+  fallo incierto de C06, ejecuta una única reconciliación Room read-only. Un
+  preflight posterior recupera un commit compatible. No existe journal durable,
+  consulta remota, replay después de process death ni recuperación destructiva.
+- **Impacto:** Un timeout, respuesta perdida, fallo C05/C06 o process death puede
+  dejar al backend aceptado y al dispositivo sin evidencia local suficiente.
+  Tras reinicio, el guard ya no impide un intento nuevo.
+- **Motivo por el que no está completa:** El contrato vigente no publica un
+  endpoint de consulta/reconciliación, una prueba de posesión recuperable ni
+  semántica para reemitir el secreto después de perder el intento vivo. El
+  replay secreto del backend tampoco garantiza la ventana del caller: clock
+  skew y token se validan antes de idempotencia.
+- **Dependencias:** Decisión de protocolo y threat model; contrato versionado;
+  backend idempotente; almacenamiento durable mínimo sin secretos; auditoría,
+  rate limit y UX/runbook de intervención.
+- **Riesgos:** Persistir token o plaintext, convertir un estado ambiguo en éxito,
+  crear otra identidad/credential, reusar un token vencido o habilitar reset
+  destructivo sin autorización.
+- **Workaround actual:** Fail-closed; conservar el mismo intento vivo para un
+  retry manual inmediato cuando sea operacionalmente válido, o detenerse para
+  intervención. No existe workaround equivalente después de process death.
+- **Criterios de aceptación:** Aprobar un protocolo que distinga no enviado,
+  rechazado, aceptado y ambiguo; demostrar idempotencia y ownership; definir un
+  journal sin secretos con migración y backup policy; reconciliar después de
+  restart sin segundo enrolamiento; cubrir process death en cada frontera y
+  documentar recovery/rollback autorizado.
+- **Evidencia actual:** `docs/phase08/c07-enrollment-coordinator.md`,
+  `ProcessEnrollmentGuard.kt` y las suites C07 de failure windows, concurrencia
+  y cancelación.
+- **Evidencia de validación requerida:** Backend y dispositivo reales, respuesta
+  perdida, commit antes de process death, restart con y sin fila Room, token
+  consumido/vencido/revocado y dos intentos con IDs distintos.
+- **Decisión pendiente:** Si se incorpora endpoint de reconciliación, replay
+  autenticado del secreto, proof-of-possession u operación administrativa; no
+  se presume ninguna de esas capacidades.
+- **Fase futura sugerida:** Fase posterior a C14, o bloque explícito aprobado que
+  pueda modificar contratos y backend.
+- **Última revisión:** 2026-07-24.
 
 ### FW-MOB-002 — Agente iOS/iPadOS nativo
 

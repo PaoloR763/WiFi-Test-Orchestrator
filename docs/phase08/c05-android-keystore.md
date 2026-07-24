@@ -7,13 +7,12 @@ entregada por el backend. Android Keystore conserva una clave AES; no conserva
 directamente la credential recuperable. El plaintext se cifra y descifra sólo
 en memoria y C05 produce un envelope autenticado, cerrado y no serializable.
 
-C05 no persiste el envelope, no modifica Room v1, no crea estado de
-enrolamiento durable y no compone todavía el adapter desde `:app`. Tampoco
+C05 no persiste el envelope, no modifica Room ni crea por sí sola estado de
+enrolamiento durable. C07 compone el adapter lazy desde `:app`. C05 tampoco
 agrega networking, retries, UI, WorkManager, Foreground Service, capabilities,
 telemetría, tareas remotas ni operaciones públicas de delete, reset, export o
-rotación. C06 deberá persistir el envelope completo en Room v2 y coordinarlo con
-identidad y metadata antes de que el producto pueda afirmar enrolamiento
-durable.
+rotación. C06 persiste el envelope completo en Room v2 con identidad y metadata;
+C07 coordina su producción y persistencia antes de afirmar enrolamiento durable.
 
 El getter público `KeyInfo.isUnlockedDeviceRequired()` fue agregado recién en
 Android 36.1. C05 distingue esa limitación conocida de un fallo de inspección:
@@ -52,10 +51,11 @@ La dependencia sigue siendo unidireccional:
   secuencia policy estática → probe randomized-IV → inspección compatible. El
   tipo de snapshot del backend no contiene ningún estado compatible,
   `probeVerified` ni evidencia prefabricada del probe.
-- `:core:data` no participa en C05. C06 podrá depender del port de domain sin
-  conocer `KeyStore`, `SecretKey` o `Cipher`.
-- `:app` no crea la factory ni genera claves en C05. La composición activa se
-  difiere para evitar side effects eager y acoplamiento prematuro.
+- `:core:data` no implementa C05. C06 depende de sus tipos de domain y C07 llama
+  al port sin conocer `KeyStore`, `SecretKey` o `Cipher`; data nunca depende de
+  platform.
+- `:app` no creó la factory ni generó claves en C05. C07 agrega composición
+  lazy sin side effects eager.
 
 La factory pública no recibe ni conserva `Context`, no abre Keystore y no hace
 I/O. Cada invocación produce un adapter lazy con policy y alias v1 fijos.
@@ -165,8 +165,8 @@ es data class ni `Serializable`, no tiene anotaciones de serialización y
 conserva igualdad y hashing referenciales. `toString()` no incluye versión,
 alias, IDs, nonce ni ciphertext.
 
-C05 no define formato de disco, DTO, JSON, columnas ni tabla Room. C06 deberá
-definir una serialización explícita sin reinterpretar jamás v1.
+C05 no define formato de disco, DTO, JSON, columnas ni tabla Room. C06 define
+una serialización explícita sin reinterpretar jamás v1.
 
 ## AAD v1
 
@@ -381,9 +381,9 @@ pero no demuestra provider `AndroidKeyStore`, KeyMint, no exportabilidad real,
 hardware/TEE/StrongBox, persistencia entre procesos, invalidación OEM, reboot,
 uninstall ni restore.
 
-## Diferido a C06
+## Integración implementada por C06/C07
 
-C06 necesitará persistir en Room v2, de forma atómica con identidad y metadata:
+C06 persiste en Room v2, de forma atómica con identidad y metadata:
 
 - sealed credential de 105 bytes;
 - nonce de 12 bytes;
@@ -392,11 +392,10 @@ C06 necesitará persistir en Room v2, de forma atómica con identidad y metadata
 - credential ID y credential version autenticados;
 - identidad backend y metadata de enrolamiento requeridas por su contrato.
 
-No debe persistir plaintext ni usar cero, vacío o placeholders para ausencia.
-C06 deberá ejecutar `prepare()` antes de consumir un token single-use y sólo
-podrá continuar después de que esta corrección de compatibilidad supere revisión
-independiente. La migración Room v1→v2, transacción, serialización, retry y
-recovery pertenecen íntegramente a C06.
+No persiste plaintext ni usa cero, vacío o placeholders para ausencia. C07
+ejecuta el preflight C06 antes de tocar Keystore: usa `prepare()` sólo ante
+estado durable `Absent` y `inspect()` sólo ante `Compatible`. Retry remoto
+automático, recovery y reset continúan excluidos.
 
 ## Diferido a C12 — NOT RUN
 

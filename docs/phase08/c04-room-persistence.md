@@ -229,17 +229,19 @@ Resultado local del corte C04:
 
 ## Diferido
 
-C04 no afirma enrolamiento durable. La secuencia aprobada para los próximos
-bloques es:
+C04 no afirma enrolamiento durable. La secuencia implementada por C05–C07 es:
 
-1. C05 administrará claves criptográficas no exportables con Android Keystore.
-2. C05 cifrará la credential en memoria y producirá un envelope autenticado.
+1. C05 administra claves criptográficas mediante Android Keystore.
+2. C05 cifra la credential en memoria y produce un envelope autenticado.
    Keystore no se describirá como almacenamiento directo de un bearer
    credential recuperable.
-3. C06 incorporará Room v2 y coordinará en una operación completa el
-   ciphertext, nonce, alias real, versión criptográfica, identidad y metadata.
+3. C06 incorpora Room v2 y persiste en una operación SQLite el ciphertext,
+   nonce, alias real, versión criptográfica, identidad y metadata.
 4. El plaintext nunca se almacenará en Room. Sólo cuando estado criptográfico y
    metadata estén completos podrá afirmarse enrolamiento durable.
+5. C07 coordina C03–C06 bajo un mutex de proceso: preflight antes de Keystore,
+   una llamada remota, protección inmediata y persistencia. No convierte la
+   atomicidad SQLite en atomicidad distribuida.
 
 Las comprobaciones reales en dispositivo/emulador API 29 y API 36 de corrupción,
 WAL con terminación forzada, backup/device transfer, downgrade y reapertura tras
