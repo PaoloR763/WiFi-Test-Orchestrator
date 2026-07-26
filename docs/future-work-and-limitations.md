@@ -293,7 +293,9 @@ Contradicciones o ambigüedades detectadas:
 - **Estado:** `IN_PROGRESS`.
 - **Prioridad:** `TO_BE_DECIDED`.
 - **Descripción:** Agente Kotlin/Jetpack con enrolamiento, Room, WorkManager,
-  Foreground Service, UI, capabilities y probes permitidos.
+  UI, capabilities y probes permitidos. Un Foreground Service sólo corresponde
+  cuando exista trabajo prolongado, visible, iniciado por el usuario y
+  permitido por Android.
 - **Comportamiento actual:** Existe el proyecto nativo modular
   `agents/android/`. C01 aporta bootstrap reproducible; C02A contratos wire;
   C02B dominio puro; C03 transporte HTTPS y mapping de enrolamiento en memoria;
@@ -301,29 +303,33 @@ Contradicciones o ambigüedades detectadas:
   AES-256-GCM mediante Android Keystore; C06 Room v2 persiste identidad backend,
   metadata `ACTIVE` y el envelope ya protegido con rotación monotónica y
   servidor inmutable; C07 coordina C03–C06 bajo mutex y guard de proceso, sin
-  retry automático, y compone el flujo lazy desde `:app`. No existen todavía
-  WorkManager, Foreground Service, UI, capabilities, probes ni tareas remotas.
-- **Impacto:** La base C01–C07 puede compilarse y probarse en host, y C07 puede
+  retry automático, y compone el flujo lazy desde `:app`. C08 agrega el
+  Capability Manifest determinista de 15 filas, secuencia inicial 0, Room v3
+  accepted/pending y publicación HTTPS autenticada/reintentable. No existen
+  todavía WorkManager, UI, observación Wi-Fi/conectividad, probes ni tareas
+  remotas; tampoco existe un Foreground Service sin operación legítima.
+- **Impacto:** La base C01–C08 puede compilarse y probarse en host, C07 puede
   representar enrolamiento durable local después de recibir un envelope válido,
-  pero todavía no constituye un agente Android funcional completo ni puede
-  ejecutar pruebas.
+  y C08 puede publicar de forma explícita qué funciones están planificadas,
+  excluidas o condicionadas. Todavía no constituye un agente Android funcional
+  completo ni puede ejecutar pruebas.
   C05 distingue la limitación conocida de observabilidad unlocked-device en API
   29–36.0 y sólo acepta el alias v1 cuando todos los demás atributos son exactos;
   desde API 36.1 exige evidencia observada `NOT_REQUIRED`. El guard C07 se pierde
   con process death y no reemplaza reconciliación durable.
-- **Motivo por el que no está completa:** Faltan C08–C14, incluidos
-  runtime/lifecycle, UI, capabilities, probes,
+- **Motivo por el que no está completa:** Faltan C09–C14, incluidos
+  observación Wi-Fi/conectividad, runtime/lifecycle, UI,
   instrumentación real, CI y cierre documental.
-- **Dependencias:** Contratos, orquestación móvil, persistencia Room v2,
-  lifecycle Android y providers de probes/tráfico.
+- **Dependencias:** Contratos, orquestación móvil, persistencia Room v3,
+  lifecycle Android y futuros providers de probes/tráfico.
 - **Riesgos:** Confundir atomicidad SQLite con atomicidad entre backend,
   Keystore y Room; prometer no exportabilidad/hardware-backed,
   scan/background ilimitado o capacidades fuera de APIs verificadas; asumir
   evidencia positiva de unlocked-device antes de API 36.1, donde sólo existe
   una regla de compatibilidad acotada por alias y atributos observables.
-- **Workaround actual:** Ninguno que equivalga a un agente. Las capas C01–C07
+- **Workaround actual:** Ninguno que equivalga a un agente. Las capas C01–C08
   permiten continuar desarrollo y tests host sin persistir plaintext.
-- **Criterios de aceptación:** Completar C08–C14 y la matriz instrumentada al
+- **Criterios de aceptación:** Completar C09–C14 y la matriz instrumentada al
   menos en API 29 y API 36/36.1, con permisos denegados, lifecycle,
   foreground/background, cambio Wi-Fi/celular, Doze, process death, Keystore,
   backup/restore y hardware presente/ausente.
@@ -332,7 +338,8 @@ Contradicciones o ambigüedades detectadas:
   `docs/phase08/c04-room-persistence.md` y
   `docs/phase08/c05-android-keystore.md` y
   `docs/phase08/c06-protected-enrollment-persistence.md` y
-  `docs/phase08/c07-enrollment-coordinator.md`.
+  `docs/phase08/c07-enrollment-coordinator.md` y
+  `docs/phase08/c08-android-capability-manifest.md`.
 - **Evidencia de validación requerida:** Unit/instrumented tests, permisos
   denegados, foreground/background, cambio Wi-Fi/celular, Doze y terminación de
   proceso en dispositivos reales; provider `AndroidKeyStore`, `encoded == null`,
@@ -341,9 +348,11 @@ Contradicciones o ambigüedades detectadas:
 - **Decisión pendiente:** Validación instrumentada/OEM de la regla unlocked-device
   en API 29 y 36.1, matriz final de API levels, canal de distribución y prioridad
   de producto.
-- **Fase futura sugerida:** Fase 08 en curso; C08–C14 pendientes, con alcance de
-  C08–C11 sujeto a validación posterior.
-- **Última revisión:** 2026-07-24.
+- **Fase futura sugerida:** Fase 08 en curso: C09 observación pasiva,
+  C10 WorkManager/presence, C11 UI con FGS condicionado, C12 instrumentación,
+  C13 CI y C14 cierre. Tareas remotas y probes permanecen en Fases 10 y 11
+  globales.
+- **Última revisión:** 2026-07-25.
 
 ### FW-MOB-003 — Enforcement arquitectónico estático del agente Android
 
@@ -359,11 +368,12 @@ Contradicciones o ambigüedades detectadas:
   dependencias y helpers productivos.
 - **Comportamiento actual:** No existe ese enforcement exhaustivo. Los tests C06
   mantienen un snapshot exacto de 28 tipos públicos conocidos, un inventario
-  cerrado de los 22 archivos bajo `core/data/.../data/persistence` y checks
-  léxicos best-effort para referencias e imports directos, incluido el rechazo
-  de wildcards locales ordinarios. Son defensa en profundidad frente a
-  regresiones accidentales, no una frontera de seguridad ni un sustituto de
-  revisión de código.
+  cerrado bajo `core/data/.../data/persistence` cuyo conteo y clasificación
+  autoritativos están en `ProtectedEnrollmentSecurityTest` /
+  `PERSISTENCE_SOURCE_INVENTORY`, y checks léxicos best-effort para referencias
+  e imports directos, incluido el rechazo de wildcards locales ordinarios. Son
+  defensa en profundidad frente a regresiones accidentales, no una frontera de
+  seguridad ni un sustituto de revisión de código.
 - **Impacto:** Un tipo o facade nueva, un helper externo o una dependencia
   transitiva requiere revisión explícita hasta que exista tooling dedicado.
   Esta limitación no cambia la corrección runtime de la persistencia C06, sus

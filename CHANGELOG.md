@@ -8,6 +8,13 @@ Versioning cuando existan releases publicadas.
 
 ## Unreleased
 
+- Agregado C08 del agente Android: catálogo determinista de 15 capabilities,
+  fingerprint semántico, secuencia inicial 0 y monotónica, snapshot pending
+  congelado, Room v3 con migración 2→3/guards/lectura raw fail-closed,
+  publicación `PUT` HTTPS autenticada, ack estricto, retry idempotente,
+  recuperación ante ambigüedad/process recreation y composición lazy con
+  `BuildConfig.VERSION_NAME`. No agrega permisos, componentes, UI, lifecycle,
+  tareas, probes, tráfico, captura ni CI.
 - Agregado el coordinador de enrolamiento Android C07 en `:core:data`: intento
   efímero congelado, mutex y guard globales de proceso, preflight C06 antes de
   Keystore, `inspect`/`prepare` excluyentes, bridge cancellable para una única

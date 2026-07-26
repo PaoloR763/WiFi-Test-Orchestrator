@@ -40,5 +40,13 @@ internal object WtoAgentDatabaseMigrations {
             }
         }
 
-    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2)
+    val MIGRATION_2_3: Migration =
+        object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(CapabilityManifestPublicationSchema.CREATE_TABLE_SQL)
+                CapabilityManifestPublicationSchema.installGuards(db)
+            }
+        }
+
+    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3)
 }

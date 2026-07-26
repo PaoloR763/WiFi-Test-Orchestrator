@@ -36,6 +36,7 @@ internal class AndroidLocalPersistenceFactoryTest : RoomPersistenceTestBase() {
         assertEquals(before, productStorageSnapshot())
         factory.create()
         factory.createProtectedEnrollmentRepository()
+        factory.createCapabilityManifestPublicationRepository()
 
         assertEquals(before, productStorageSnapshot())
     }
@@ -90,6 +91,7 @@ internal class AndroidLocalPersistenceFactoryTest : RoomPersistenceTestBase() {
             listOf(
                 LocalStateRepository::class.java,
                 ProtectedEnrollmentRepository::class.java,
+                CapabilityManifestPublicationRepository::class.java,
             ).flatMap { type -> type.methods.map { it.name } }
                 .toSet()
 
@@ -104,6 +106,10 @@ internal class AndroidLocalPersistenceFactoryTest : RoomPersistenceTestBase() {
         assertSame(
             factory.createProtectedEnrollmentRepository(),
             factory.createProtectedEnrollmentRepository(),
+        )
+        assertSame(
+            factory.createCapabilityManifestPublicationRepository(),
+            factory.createCapabilityManifestPublicationRepository(),
         )
     }
 

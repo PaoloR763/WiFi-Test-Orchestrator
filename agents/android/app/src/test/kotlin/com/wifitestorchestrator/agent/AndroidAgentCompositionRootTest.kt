@@ -4,6 +4,8 @@ import com.wifitestorchestrator.agent.data.enrollment.coordination.EnrollmentAtt
 import com.wifitestorchestrator.agent.data.enrollment.coordination.EnrollmentCoordinator
 import com.wifitestorchestrator.agent.data.enrollment.coordination.EnrollmentCoordinatorResult
 import com.wifitestorchestrator.agent.data.enrollment.coordination.EnrollmentInvocationIntent
+import com.wifitestorchestrator.agent.data.capability.CapabilityManifestPublicationResult
+import com.wifitestorchestrator.agent.data.capability.CapabilityManifestPublisher
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.test.Test
@@ -60,6 +62,37 @@ class AndroidAgentCompositionRootTest {
         assertFalse(onCreate.contains("Room"))
         assertFalse(onCreate.contains("Keystore"))
         assertFalse(onCreate.contains("EnrollmentCoordinator"))
+    }
+
+    @Test
+    fun `capability publisher composition is lazy memoized and receives BuildConfig version`() {
+        var compositions = 0
+        val publisher = NeverExecutedPublisher()
+        val root =
+            AndroidAgentCompositionRoot(
+                coordinatorFactory = { NeverExecutedCoordinator() },
+                capabilityManifestPublisherFactory = {
+                    compositions += 1
+                    publisher
+                },
+            )
+
+        assertEquals(BuildConfig.VERSION_NAME, capabilityAgentVersionFromBuildConfig().toString())
+        assertEquals(0, compositions)
+        assertSame(publisher, root.capabilityManifestPublisher)
+        assertSame(publisher, root.capabilityManifestPublisher)
+        assertEquals(1, compositions)
+        assertEquals(0, publisher.executions)
+    }
+}
+
+private class NeverExecutedPublisher : CapabilityManifestPublisher {
+    var executions: Int = 0
+        private set
+
+    override suspend fun publish(): CapabilityManifestPublicationResult {
+        executions += 1
+        error("The lazy composition test must not publish a manifest.")
     }
 }
 

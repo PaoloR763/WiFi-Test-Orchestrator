@@ -9,6 +9,10 @@ plugins {
 android {
     namespace = "com.wifitestorchestrator.agent"
 
+    buildFeatures {
+        buildConfig = true
+    }
+
     compileSdk {
         version = release(libs.versions.android.compile.api.get().toInt()) {
             minorApiLevel = libs.versions.android.compile.minor.get().toInt()

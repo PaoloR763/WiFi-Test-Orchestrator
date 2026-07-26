@@ -4,10 +4,10 @@ Este directorio contiene el bootstrap reproducible C01, los contratos wire de
 enrolamiento C02A, el dominio base puro C02B, la integración inicial de
 enrolamiento C03, la base Room C04, la protección Android Keystore C05, la
 persistencia del enrolamiento protegido C06 y el coordinador C07. El proyecto
-sigue sin pantallas, actividades, servicios, WorkManager, capabilities, probes
-ni lifecycle operativo. C07 integra en memoria C03–C06, con mutex/guard de
-proceso, protección inmediata, persistencia durable y composición lazy desde
-`:app`.
+incorpora en C08 la publicación explícita y durable del Capability Manifest,
+pero sigue sin pantallas, actividades, servicios, WorkManager, probes ni
+lifecycle operativo. C07 integra en memoria C03–C06; C08 publica un snapshot
+de 15 capabilities sin afirmar que las funciones diferidas estén implementadas.
 
 ## Toolchain
 
@@ -36,22 +36,29 @@ compatible.
 ## Módulos
 
 - `:app`: ensamblado Android mínimo; puede depender de todos los módulos core.
-- `:core:contracts`: módulo Kotlin/JVM puro con los DTOs públicos de
-  enrolamiento C02A.
+- `:core:contracts`: módulo Kotlin/JVM puro con los DTOs de enrolamiento C02A y
+  del Capability Manifest/ack C08.
 - `:core:domain`: módulo Kotlin/JVM puro con identidad, configuración segura,
   secretos, credenciales, aceptación factual de enrolamiento C02B y el port y
-  modelos criptográficos puros C05.
+  modelos criptográficos puros C05 y el catálogo determinista C08.
 - `:core:data`: biblioteca Android con mapping, JSON estricto y transporte HTTPS
   de enrolamiento C03, persistencia local C04, el repositorio Room v2 C06 y el
-  coordinador C07 para identidad backend, metadata `ACTIVE` y envelope cifrado;
-  depende de domain y contracts, nunca de platform.
+  coordinador C07 y, en C08, canonicalización, publicación HTTPS y Room v3 para
+  accepted/pending; depende de domain y contracts, nunca de platform.
 - `:core:platform`: biblioteca Android con el adapter Android Keystore/AES-GCM
-  C05; depende únicamente de domain.
+  C05 y el facts provider acotado a `Build.VERSION.RELEASE`/`FEATURE_WIFI` C08;
+  depende únicamente de domain.
 
 C07 agrega `AndroidAgentCompositionRoot`: compone lazy el cliente C03, el
 repositorio C06, el protector C05 y la factory pública del coordinador. La
 construcción y `Application.onCreate()` no abren Room o Keystore, no crean
 requests, no consumen tokens y no inician coroutines o red.
+
+C08 agrega otro lazy thread-safe al mismo composition root. Recibe exactamente
+`BuildConfig.VERSION_NAME` como `AgentVersion`; habilitar la generación normal
+de `BuildConfig` es el único cambio de configuración de build. Construir el root
+continúa sin abrir Room, tocar Keystore, crear coroutines, observar Wi-Fi o
+publicar.
 
 ## Contratos wire C02A
 
@@ -294,6 +301,35 @@ repite POST, protección o persistencia.
 La secuencia, máquina de fallos, cancelación, secretos, límites de zeroization y
 ausencia de atomicidad distribuida se detallan en
 [`docs/phase08/c07-enrollment-coordinator.md`](../../docs/phase08/c07-enrollment-coordinator.md).
+
+## Capability Manifest C08
+
+C08 expone un publicador invocable explícitamente. Lee el enrolamiento durable
+C07, construye las 15 filas normativas en orden, usa
+`Build.VERSION.RELEASE` sin normalizar y sólo consulta la presencia de
+`PackageManager.FEATURE_WIFI`. No observa radio, asociación, SSID, BSSID, RSSI
+ni conectividad.
+
+El semantic fingerprint excluye únicamente ID, secuencia y `generated_at`. La
+primera publicación reserva secuencia 0. Room v3 agrega una tabla singleton con
+FK restrictiva al enrolamiento, accepted/pending all-or-none, payload canónico,
+digests y fingerprints de 32 bytes. La reserva se confirma antes de Keystore o
+red; timeout, respuesta incompleta, ack inválido o rechazo conservan pending
+para un retry explícito byte-idéntico.
+
+La publicación ejecuta un único `PUT` autenticado dentro del callback de
+descifrado, sin redirects o retries automáticos. Sólo un ack 200 estricto mueve
+pending a accepted. El mutex C08 es global de proceso pero independiente del
+mutex C07; Room es la autoridad durable y cada transición revalida binding,
+pending y credential activa.
+
+C08 no agrega permisos ni componentes. Los IDs `nearby.wifi.devices` y
+`vpn.consent` son conceptos publicados, no nombres Android universales, y se
+marcan conservadoramente `permission_missing` sin inventar `denied`.
+
+La matriz literal, transiciones de hardware, canonicalización, migración,
+rollback, HTTP, seguridad y rebaseline C09–C14 están en
+[`docs/phase08/c08-android-capability-manifest.md`](../../docs/phase08/c08-android-capability-manifest.md).
 
 ## Generación verificada del Wrapper
 

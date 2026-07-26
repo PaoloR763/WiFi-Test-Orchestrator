@@ -25,6 +25,11 @@ class RoomSchemaSecurityTest {
             projectDirectory,
             "schemas/com.wifitestorchestrator.agent.data.persistence.room.WtoAgentDatabase/2.json",
         )
+    private val schemaV3File =
+        File(
+            projectDirectory,
+            "schemas/com.wifitestorchestrator.agent.data.persistence.room.WtoAgentDatabase/3.json",
+        )
 
     @Test
     fun `v1 schema remains the exact C04 shape and identity`() {
@@ -117,9 +122,71 @@ class RoomSchemaSecurityTest {
     }
 
     @Test
+    fun `v3 adds only the capability publication singleton with the approved columns`() {
+        val database = exportedDatabase(schemaV3File)
+        val columnsByTable = columnsByTable(database)
+
+        assertEquals(
+            setOf(
+                "local_installation",
+                "server_configuration",
+                "protected_enrollment",
+                "capability_manifest_publication",
+            ),
+            columnsByTable.keys,
+        )
+        assertEquals(capabilityPublicationColumns, columnsByTable["capability_manifest_publication"])
+        assertEquals(45, columnsByTable.values.sumOf { it.size })
+        assertEquals(
+            "fc6ae10689d928ae79814722274f529e",
+            database.getValue("identityHash").jsonPrimitive.content,
+        )
+    }
+
+    @Test
+    fun `v3 publication SQL has one restrictive enrollment FK and only approved blobs`() {
+        val database = exportedDatabase(schemaV3File)
+        val publication =
+            database.getValue("entities").jsonArray
+                .map { it.jsonObject }
+                .single {
+                    it.getValue("tableName").jsonPrimitive.content ==
+                        "capability_manifest_publication"
+                }
+        val createSql = publication.getValue("createSql").jsonPrimitive.content.lowercase()
+        val blobColumns =
+            publication.getValue("fields").jsonArray
+                .map { it.jsonObject }
+                .filter { it.getValue("affinity").jsonPrimitive.content == "BLOB" }
+                .map { it.getValue("columnName").jsonPrimitive.content }
+                .toSet()
+
+        assertEquals(1, createSql.countOccurrences("foreign key(`singleton_id`)"))
+        assertEquals(1, createSql.countOccurrences("on update no action on delete restrict"))
+        assertEquals(
+            setOf(
+                "enrollment_identity_fingerprint",
+                "accepted_manifest_digest",
+                "accepted_semantic_fingerprint",
+                "accepted_canonical_payload",
+                "pending_canonical_payload",
+                "pending_canonical_digest",
+                "pending_semantic_fingerprint",
+            ),
+            blobColumns,
+        )
+        setOf("token", "secret", "authorization", "headers", "exception", "message")
+            .forEach { forbidden -> assertFalse(forbidden in createSql) }
+    }
+
+    @Test
     fun `public persistence ports exclude plaintext protector transport and Room types`() {
         val signature =
-            listOf(LocalStateRepository::class.java, ProtectedEnrollmentRepository::class.java)
+            listOf(
+                LocalStateRepository::class.java,
+                ProtectedEnrollmentRepository::class.java,
+                CapabilityManifestPublicationRepository::class.java,
+            )
                 .flatMap { type -> type.declaredMethods.toList() }
                 .joinToString("\n") { method -> method.toGenericString() }
                 .lowercase()
@@ -241,6 +308,27 @@ class RoomSchemaSecurityTest {
                 "key_alias",
                 "nonce",
                 "sealed_credential",
+            )
+        val capabilityPublicationColumns =
+            setOf(
+                "singleton_id",
+                "enrollment_identity_fingerprint",
+                "next_manifest_sequence",
+                "sequence_exhausted",
+                "accepted_manifest_id",
+                "accepted_manifest_sequence",
+                "accepted_manifest_digest",
+                "accepted_server_received_at_epoch_seconds",
+                "accepted_server_received_at_nanoseconds",
+                "accepted_semantic_fingerprint",
+                "accepted_canonical_payload",
+                "pending_manifest_id",
+                "pending_manifest_sequence",
+                "pending_generated_at_epoch_seconds",
+                "pending_generated_at_nanoseconds",
+                "pending_canonical_payload",
+                "pending_canonical_digest",
+                "pending_semantic_fingerprint",
             )
         val forbiddenStorageNames =
             setOf(

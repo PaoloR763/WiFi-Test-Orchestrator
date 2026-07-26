@@ -241,12 +241,15 @@ internal class ProtectedEnrollmentSecurityTest : RoomPersistenceTestBase() {
             emptySet(),
             sourceInventoryViolations(persistenceRoot, PERSISTENCE_SOURCE_INVENTORY),
         )
-        assertEquals(22, PERSISTENCE_SOURCE_INVENTORY.size)
+        assertEquals(29, PERSISTENCE_SOURCE_INVENTORY.size)
         assertEquals(
             mapOf(
                 SourceCategory.C04 to 11,
-                SourceCategory.C06 to 7,
-                SourceCategory.SHARED_C04_C06 to 4,
+                SourceCategory.C06 to 6,
+                SourceCategory.C08 to 7,
+                SourceCategory.SHARED_C04_C06 to 2,
+                SourceCategory.SHARED_C04_C06_C08 to 2,
+                SourceCategory.SHARED_C06_C08 to 1,
             ),
             PERSISTENCE_SOURCE_INVENTORY
                 .groupingBy(ClassifiedSource::category)
@@ -654,7 +657,10 @@ internal class ProtectedEnrollmentSecurityTest : RoomPersistenceTestBase() {
 private enum class SourceCategory {
     C04,
     C06,
+    C08,
     SHARED_C04_C06,
+    SHARED_C04_C06_C08,
+    SHARED_C06_C08,
 }
 
 private data class ClassifiedSource(
@@ -664,7 +670,11 @@ private data class ClassifiedSource(
 
 private val PERSISTENCE_SOURCE_INVENTORY =
     listOf(
-        ClassifiedSource(SourceCategory.SHARED_C04_C06, "AndroidLocalPersistenceFactory.kt"),
+        ClassifiedSource(
+            SourceCategory.SHARED_C04_C06_C08,
+            "AndroidLocalPersistenceFactory.kt",
+        ),
+        ClassifiedSource(SourceCategory.C08, "CapabilityManifestPublicationModels.kt"),
         ClassifiedSource(SourceCategory.C04, "LocalPersistenceError.kt"),
         ClassifiedSource(SourceCategory.SHARED_C04_C06, "LocalPersistenceModels.kt"),
         ClassifiedSource(SourceCategory.C04, "LocalStateRepository.kt"),
@@ -682,10 +692,16 @@ private val PERSISTENCE_SOURCE_INVENTORY =
         ClassifiedSource(SourceCategory.C06, "room/ProtectedEnrollmentMappers.kt"),
         ClassifiedSource(SourceCategory.SHARED_C04_C06, "room/RoomLocalStateRepository.kt"),
         ClassifiedSource(SourceCategory.C06, "room/RoomProtectedEnrollmentRepository.kt"),
+        ClassifiedSource(SourceCategory.C08, "room/CapabilityManifestPublicationDao.kt"),
+        ClassifiedSource(SourceCategory.C08, "room/CapabilityManifestPublicationEntity.kt"),
+        ClassifiedSource(SourceCategory.C08, "room/CapabilityManifestPublicationMappers.kt"),
+        ClassifiedSource(SourceCategory.C08, "room/CapabilityManifestPublicationObservation.kt"),
+        ClassifiedSource(SourceCategory.C08, "room/CapabilityManifestPublicationSchema.kt"),
+        ClassifiedSource(SourceCategory.C08, "room/RoomCapabilityManifestPublicationRepository.kt"),
         ClassifiedSource(SourceCategory.C04, "room/ServerConfigurationEntity.kt"),
         ClassifiedSource(SourceCategory.C04, "room/StorageExceptions.kt"),
-        ClassifiedSource(SourceCategory.SHARED_C04_C06, "room/WtoAgentDatabase.kt"),
-        ClassifiedSource(SourceCategory.C06, "room/WtoAgentDatabaseMigrations.kt"),
+        ClassifiedSource(SourceCategory.SHARED_C04_C06_C08, "room/WtoAgentDatabase.kt"),
+        ClassifiedSource(SourceCategory.SHARED_C06_C08, "room/WtoAgentDatabaseMigrations.kt"),
     )
 
 private fun sourceInventoryViolations(
@@ -756,6 +772,7 @@ private fun writeSyntheticSource(
 
 private val ALLOWED_LOCAL_PRODUCT_PREFIXES =
     setOf(
+        "com.wifitestorchestrator.agent.data.capability.",
         "com.wifitestorchestrator.agent.data.persistence.",
         "com.wifitestorchestrator.agent.domain.configuration.",
         "com.wifitestorchestrator.agent.domain.credential.protection.",
