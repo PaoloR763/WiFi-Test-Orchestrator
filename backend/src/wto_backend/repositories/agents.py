@@ -21,8 +21,16 @@ class AgentRepository:
     def __init__(self, session: Session) -> None:
         self.session = session
 
-    def agent(self, agent_id: UUID, *, lock: bool = False) -> Agent | None:
+    def agent(
+        self,
+        agent_id: UUID,
+        *,
+        lock: bool = False,
+        refresh_existing: bool = False,
+    ) -> Agent | None:
         statement = select(Agent).where(Agent.id == agent_id)
+        if refresh_existing:
+            statement = statement.execution_options(populate_existing=True)
         if lock:
             statement = statement.with_for_update()
         return self.session.scalar(statement)

@@ -7,7 +7,8 @@ User auth y agent auth son dependencias separadas. Un request de agente lleva
 `X-WTO-Agent-Nonce`, `X-WTO-Agent-Protocol` y `X-Correlation-ID`. Timestamp es
 RFC 3339 UTC con skew máximo ±300 s. Nonce es base64url de 128 bits, único por
 credential durante 600 s y reservado atómicamente en Redis. Redis inaccesible
-falla cerrado con 503.
+falla cerrado con 503. `X-WTO-Agent-Timestamp` describe cada intento HTTP y
+siempre debe ser fresco, incluso cuando el body reintenta un evento durable.
 
 `AgentPendingCredentialAuth` sólo sirve a activación. Una credential recién
 activada puede repetir esa misma activación idempotente para recuperar una
@@ -30,6 +31,26 @@ sequence con otro cuerpo o sequence anterior devuelve 409.
 Mobile publica presence puntual. La respuesta incluye `server_received_at`,
 `presence_expires_at` y `poll_after_seconds`; task retrieval es HTTPS outbound
 separado. Push sólo podrá notificar; FCM/APNs quedan fuera de alcance.
+
+En heartbeat y mobile presence, `agent_reported_at` pertenece al body durable:
+queda congelado junto con `boot_id`, `sequence` y el resto del payload. Si el
+backend ya aceptó exactamente el mismo `boot_id`, `sequence` y digest canónico,
+puede devolver el acknowledgement histórico aunque ese `agent_reported_at`
+haya envejecido más allá del skew. Este replay no extiende
+`presence_expires_at`, no cambia `server_received_at` ni `last_seen_at`, no
+reemplaza el manifest y no escribe otra presencia o auditoría.
+
+La excepción sólo recupera el acknowledgement exacto. No evita autenticación,
+revocación, rate limit, timestamp HTTP ni nonce fresco. El mismo sequence con
+otro digest conserva el conflicto; una sequence nueva o un boot nuevo conserva
+la validación normal de skew y manifest.
+
+La revalidación defensiva del agente para ese replay adquiere el lock de
+`AgentPresence` y luego lee `Agent` bajo lock con recarga autoritativa. Una
+instancia de `Agent` previamente cargada en la sesión no puede legitimar el
+replay si otra transacción ya confirmó su revocación. El replay se lineariza en
+esa lectura: una revocación confirmada antes se rechaza; si la lectura
+bloqueante ocurre primero, el acknowledgement precede a la revocación.
 
 ```mermaid
 sequenceDiagram

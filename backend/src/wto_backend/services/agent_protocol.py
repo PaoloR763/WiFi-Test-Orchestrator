@@ -143,6 +143,20 @@ class AgentProtocolService:
     ) -> PresenceResponse:
         if payload.get("agent_id") != str(agent_id):
             raise AgentAuthenticationError
+        digest = hashlib.sha256(canonical_json(payload)).digest()
+        presence = self.repo.presence(agent_id, lock=True)
+        if presence is not None and presence.boot_id == boot_id and presence.sequence == sequence:
+            agent = self.repo.agent(agent_id, lock=True, refresh_existing=True)
+            if agent is None or agent.revoked_at is not None or not agent.is_active:
+                raise AgentAuthenticationError
+            if digest != presence.payload_digest:
+                raise SequenceConflictError
+            return PresenceResponse(
+                accepted_sequence=presence.sequence,
+                server_received_at=presence.server_received_at,
+                presence_expires_at=presence.presence_expires_at,
+                poll_after_seconds=poll_after,
+            )
         now = datetime.now(UTC)
         reported = reported_at.astimezone(UTC)
         if abs((now - reported).total_seconds()) > self.settings.agent_clock_skew_seconds:
@@ -150,20 +164,9 @@ class AgentProtocolService:
         manifest = self.repo.manifest(agent_id, manifest_id)
         if manifest is None or manifest.document_digest.hex() != manifest_digest:
             raise ConflictError
-        digest = hashlib.sha256(canonical_json(payload)).digest()
-        presence = self.repo.presence(agent_id, lock=True)
         if presence is not None and presence.boot_id == boot_id:
             if sequence < presence.sequence:
                 raise SequenceConflictError
-            if sequence == presence.sequence:
-                if digest != presence.payload_digest:
-                    raise SequenceConflictError
-                return PresenceResponse(
-                    accepted_sequence=presence.sequence,
-                    server_received_at=presence.server_received_at,
-                    presence_expires_at=presence.presence_expires_at,
-                    poll_after_seconds=poll_after,
-                )
         expires = now + timedelta(seconds=ttl)
         if presence is None:
             presence = AgentPresence(

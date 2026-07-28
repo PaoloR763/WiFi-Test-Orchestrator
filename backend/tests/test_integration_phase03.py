@@ -5,8 +5,10 @@ import os
 import secrets
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, tzinfo
 from pathlib import Path
+from threading import Barrier
+from typing import Any
 from uuid import UUID, uuid4
 
 import pytest
@@ -14,15 +16,19 @@ from alembic import command
 from alembic.config import Config
 from fastapi.testclient import TestClient
 from redis import Redis
-from sqlalchemy import create_engine, select, text
+from sqlalchemy import create_engine, func, select, text
 from sqlalchemy.exc import DBAPIError
 
+import wto_backend.services.agent_protocol as agent_protocol_module
+from wto_backend.api.agent_schemas import MobilePresenceRequest
 from wto_backend.config import Settings, get_settings
 from wto_backend.contracts import canonical_json, contract_root
 from wto_backend.db.session import Database
 from wto_backend.domain.models import (
+    Agent,
     AgentCredential,
     AgentCredentialRotation,
+    AgentPresence,
     AuditLog,
     AuthSession,
     EnrollmentToken,
@@ -33,12 +39,19 @@ from wto_backend.domain.models import (
     User,
 )
 from wto_backend.main import create_app
+from wto_backend.repositories.agents import AgentRepository
 from wto_backend.security.agent_credentials import parse_machine_secret
 from wto_backend.security.passwords import PasswordManager
 from wto_backend.security.tokens import TokenManager
+from wto_backend.services.agent_credentials import AgentCredentialService
+from wto_backend.services.agent_protocol import AgentProtocolService
 from wto_backend.services.auth import AuthService
 from wto_backend.services.bootstrap import bootstrap_administrator
-from wto_backend.services.errors import InvalidSessionError, LastAdministratorError
+from wto_backend.services.errors import (
+    AgentAuthenticationError,
+    InvalidSessionError,
+    LastAdministratorError,
+)
 from wto_backend.services.idempotency import IdempotencyService
 from wto_backend.services.rbac import UserAdministrationService
 from wto_backend.services.seeds import seed_rbac
@@ -559,6 +572,95 @@ def enroll_agent(client: TestClient, access: str) -> tuple[dict[str, object], di
     return request, response.json()
 
 
+def phase04_agent_with_manifest(
+    client: TestClient,
+) -> tuple[str, str, str, dict[str, object], dict[str, object]]:
+    access = login(client)
+    _, registration = enroll_agent(client, access)
+    agent_id = str(registration["agent_id"])
+    credential = str(registration["credential"]["credential"])  # type: ignore[index]
+    manifest = json.loads(
+        (contract_root() / "examples/valid/capability-manifest-desktop.json").read_text()
+    )
+    manifest["agent_id"] = agent_id
+    manifest["manifest_id"] = str(uuid4())
+    response = client.put(
+        "/api/v1/agents/self/capability-manifest",
+        headers=agent_headers(credential),
+        json=manifest,
+    )
+    assert response.status_code == 200, response.text
+    return access, agent_id, credential, manifest, response.json()
+
+
+def phase04_presence_payload(
+    *,
+    kind: str,
+    agent_id: str,
+    manifest: dict[str, object],
+    reported_at: datetime,
+) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "schema_version": "1.0.0",
+        "agent_id": agent_id,
+        "boot_id": str(uuid4()),
+        "sequence": 1,
+        "agent_version": "0.1.0",
+        "protocol_version": "1.0.0",
+        "agent_reported_at": reported_at.isoformat().replace("+00:00", "Z"),
+        "reason": None,
+        "manifest_id": manifest["manifest_id"],
+        "manifest_digest": manifest["manifest_digest"],
+    }
+    if kind == "desktop":
+        payload["readiness"] = "ready"
+    else:
+        payload["lifecycle"] = "background_window"
+    return payload
+
+
+def phase04_presence_snapshot(settings: Settings, agent_id: str) -> dict[str, object]:
+    database = Database(settings.database_url)
+    try:
+        with database.session_factory() as session:
+            presence = session.scalar(
+                select(AgentPresence).where(AgentPresence.agent_id == UUID(agent_id))
+            )
+            agent = session.get(Agent, UUID(agent_id))
+            assert presence is not None and agent is not None
+            return {
+                "presence": (
+                    presence.id,
+                    presence.agent_id,
+                    presence.kind,
+                    presence.boot_id,
+                    presence.sequence,
+                    presence.payload_digest,
+                    presence.agent_reported_at,
+                    presence.server_received_at,
+                    presence.presence_expires_at,
+                    presence.manifest_id,
+                    presence.version_id,
+                ),
+                "last_seen_at": agent.last_seen_at,
+                "audit_count": session.scalar(select(func.count()).select_from(AuditLog)),
+                "presence_count": session.scalar(select(func.count()).select_from(AgentPresence)),
+            }
+    finally:
+        database.close()
+
+
+def freeze_agent_protocol_clock(monkeypatch: pytest.MonkeyPatch, instant: datetime) -> None:
+    class FrozenDateTime(datetime):
+        @classmethod
+        def now(cls, zone: tzinfo | None = None) -> datetime:
+            if zone is None:
+                return instant.replace(tzinfo=None)
+            return instant.astimezone(zone)
+
+    monkeypatch.setattr(agent_protocol_module, "datetime", FrozenDateTime)
+
+
 def test_phase04_enrollment_manifest_presence_rotation_and_revocation(
     client: TestClient, settings: Settings
 ) -> None:
@@ -731,6 +833,347 @@ def test_phase04_enrollment_manifest_presence_rotation_and_revocation(
         ).status_code
         == 401
     )
+
+
+def test_phase04_exact_mobile_presence_replay_survives_body_clock_skew(
+    client: TestClient,
+    settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, agent_id, credential, manifest_a, accepted_manifest_a = phase04_agent_with_manifest(client)
+    reported_at = datetime.now(UTC)
+    mobile = phase04_presence_payload(
+        kind="mobile",
+        agent_id=agent_id,
+        manifest=accepted_manifest_a,
+        reported_at=reported_at,
+    )
+    initial_headers = agent_headers(credential)
+    initial = client.post(
+        "/api/v1/agents/self/presence",
+        headers=initial_headers,
+        json=mobile,
+    )
+    assert initial.status_code == 200, initial.text
+    immediate = client.post(
+        "/api/v1/agents/self/presence",
+        headers=agent_headers(credential),
+        json=mobile,
+    )
+    assert immediate.status_code == 200
+    assert immediate.json() == initial.json()
+
+    manifest_b = dict(manifest_a)
+    manifest_b["manifest_id"] = str(uuid4())
+    manifest_b["manifest_sequence"] = 2
+    published_b = client.put(
+        "/api/v1/agents/self/capability-manifest",
+        headers=agent_headers(credential),
+        json=manifest_b,
+    )
+    assert published_b.status_code == 200, published_b.text
+    assert published_b.json()["manifest_id"] != accepted_manifest_a["manifest_id"]
+
+    before = phase04_presence_snapshot(settings, agent_id)
+    freeze_agent_protocol_clock(
+        monkeypatch,
+        reported_at + timedelta(seconds=301),
+    )
+
+    delayed_headers = agent_headers(credential)
+    delayed = client.post(
+        "/api/v1/agents/self/presence",
+        headers=delayed_headers,
+        json=mobile,
+    )
+    assert delayed.status_code == 200, delayed.text
+    assert delayed.json() == initial.json()
+    assert delayed_headers["X-WTO-Agent-Nonce"] != initial_headers["X-WTO-Agent-Nonce"]
+    assert delayed_headers["X-Correlation-ID"] != initial_headers["X-Correlation-ID"]
+    assert delayed.headers["X-Correlation-ID"] == delayed_headers["X-Correlation-ID"]
+    server_received = datetime.fromisoformat(
+        str(delayed.json()["server_received_at"]).replace("Z", "+00:00")
+    )
+    expires = datetime.fromisoformat(
+        str(delayed.json()["presence_expires_at"]).replace("Z", "+00:00")
+    )
+    assert expires - server_received == timedelta(seconds=120)
+
+    stale_http = client.post(
+        "/api/v1/agents/self/presence",
+        headers=agent_headers(
+            credential,
+            timestamp=datetime.now(UTC) - timedelta(seconds=301),
+        ),
+        json=mobile,
+    )
+    assert stale_http.status_code == 401
+    assert stale_http.json()["error"]["code"] == "request_clock_skew"
+
+    fixed_nonce_headers = agent_headers(credential, nonce=secrets.token_urlsafe(16))
+    first_nonce_use = client.post(
+        "/api/v1/agents/self/presence",
+        headers=fixed_nonce_headers,
+        json=mobile,
+    )
+    second_nonce_use = client.post(
+        "/api/v1/agents/self/presence",
+        headers=fixed_nonce_headers,
+        json=mobile,
+    )
+    assert first_nonce_use.status_code == 200
+    assert second_nonce_use.status_code == 401
+    assert second_nonce_use.json()["error"]["code"] == "agent_authentication_failed"
+
+    missing_correlation_headers = agent_headers(credential)
+    missing_correlation_headers.pop("X-Correlation-ID")
+    missing_correlation = client.post(
+        "/api/v1/agents/self/presence",
+        headers=missing_correlation_headers,
+        json=mobile,
+    )
+    assert missing_correlation.status_code == 401
+    assert missing_correlation.json()["error"]["code"] == "agent_authentication_failed"
+
+    changed = {**mobile, "lifecycle": "foreground"}
+    conflict = client.post(
+        "/api/v1/agents/self/presence",
+        headers=agent_headers(credential),
+        json=changed,
+    )
+    assert conflict.status_code == 409
+    assert conflict.json()["error"]["code"] == "sequence_conflict"
+
+    next_sequence = {**mobile, "sequence": 2}
+    stale_sequence = client.post(
+        "/api/v1/agents/self/presence",
+        headers=agent_headers(credential),
+        json=next_sequence,
+    )
+    assert stale_sequence.status_code == 401
+    assert stale_sequence.json()["error"]["code"] == "request_clock_skew"
+
+    next_boot = {**mobile, "boot_id": str(uuid4())}
+    stale_boot = client.post(
+        "/api/v1/agents/self/presence",
+        headers=agent_headers(credential),
+        json=next_boot,
+    )
+    assert stale_boot.status_code == 401
+    assert stale_boot.json()["error"]["code"] == "request_clock_skew"
+
+    after = phase04_presence_snapshot(settings, agent_id)
+    assert after == before
+    assert after["presence"][9] == UUID(str(accepted_manifest_a["manifest_id"]))  # type: ignore[index]
+
+
+def test_phase04_exact_desktop_heartbeat_replay_survives_body_clock_skew(
+    client: TestClient,
+    settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, agent_id, credential, _, accepted_manifest = phase04_agent_with_manifest(client)
+    reported_at = datetime.now(UTC)
+    heartbeat = phase04_presence_payload(
+        kind="desktop",
+        agent_id=agent_id,
+        manifest=accepted_manifest,
+        reported_at=reported_at,
+    )
+    initial = client.post(
+        "/api/v1/agents/self/heartbeats",
+        headers=agent_headers(credential),
+        json=heartbeat,
+    )
+    assert initial.status_code == 200, initial.text
+    before = phase04_presence_snapshot(settings, agent_id)
+    freeze_agent_protocol_clock(
+        monkeypatch,
+        reported_at + timedelta(seconds=301),
+    )
+
+    replay = client.post(
+        "/api/v1/agents/self/heartbeats",
+        headers=agent_headers(credential),
+        json=heartbeat,
+    )
+
+    assert replay.status_code == 200, replay.text
+    assert replay.json() == initial.json()
+    server_received = datetime.fromisoformat(
+        str(replay.json()["server_received_at"]).replace("Z", "+00:00")
+    )
+    expires = datetime.fromisoformat(
+        str(replay.json()["presence_expires_at"]).replace("Z", "+00:00")
+    )
+    assert expires - server_received == timedelta(seconds=90)
+    assert phase04_presence_snapshot(settings, agent_id) == before
+
+
+def test_phase04_revoked_agent_cannot_recover_exact_presence_replay(
+    client: TestClient,
+    settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    access, agent_id, credential, _, accepted_manifest = phase04_agent_with_manifest(client)
+    reported_at = datetime.now(UTC)
+    mobile = phase04_presence_payload(
+        kind="mobile",
+        agent_id=agent_id,
+        manifest=accepted_manifest,
+        reported_at=reported_at,
+    )
+    initial = client.post(
+        "/api/v1/agents/self/presence",
+        headers=agent_headers(credential),
+        json=mobile,
+    )
+    assert initial.status_code == 200, initial.text
+    before = phase04_presence_snapshot(settings, agent_id)
+    revoked = client.post(
+        f"/api/v1/agents/{agent_id}/revoke",
+        headers=auth_headers(access),
+    )
+    assert revoked.status_code == 204
+    freeze_agent_protocol_clock(
+        monkeypatch,
+        reported_at + timedelta(seconds=301),
+    )
+
+    replay = client.post(
+        "/api/v1/agents/self/presence",
+        headers=agent_headers(credential),
+        json=mobile,
+    )
+
+    assert replay.status_code == 401
+    assert replay.json()["error"]["code"] == "agent_authentication_failed"
+    assert replay.json() != initial.json()
+    after = phase04_presence_snapshot(settings, agent_id)
+    assert after["presence"] == before["presence"]
+    assert after["last_seen_at"] == before["last_seen_at"]
+    assert after["presence_count"] == before["presence_count"]
+
+
+def test_phase04_exact_replay_refreshes_preloaded_agent_after_committed_revocation(
+    client: TestClient,
+    settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, agent_id, credential, _, accepted_manifest = phase04_agent_with_manifest(client)
+    mobile = phase04_presence_payload(
+        kind="mobile",
+        agent_id=agent_id,
+        manifest=accepted_manifest,
+        reported_at=datetime.now(UTC),
+    )
+    accepted = client.post(
+        "/api/v1/agents/self/presence",
+        headers=agent_headers(credential),
+        json=mobile,
+    )
+    assert accepted.status_code == 200, accepted.text
+
+    database = Database(settings.database_url)
+    request_session = database.session_factory()
+    try:
+        agent_uuid = UUID(agent_id)
+        preloaded_agent = AgentRepository(request_session).agent(agent_uuid)
+        assert preloaded_agent is not None
+        assert preloaded_agent.is_active is True
+        assert preloaded_agent.revoked_at is None
+
+        with database.session_factory() as revocation_session:
+            actor = revocation_session.scalar(select(User).where(User.username == "admin"))
+            assert actor is not None
+            AgentCredentialService(revocation_session, settings).revoke_agent(
+                agent_id=agent_uuid,
+                actor=actor,
+            )
+
+        before_replay = phase04_presence_snapshot(settings, agent_id)
+
+        def reject_manifest_lookup(*_: object, **__: object) -> None:
+            raise AssertionError("exact replay must not validate a manifest")
+
+        monkeypatch.setattr(AgentRepository, "manifest", reject_manifest_lookup)
+
+        with pytest.raises(AgentAuthenticationError):
+            AgentProtocolService(request_session, settings).mobile_presence(
+                agent_id=agent_uuid,
+                payload=MobilePresenceRequest.model_validate(mobile),
+            )
+
+        assert preloaded_agent.is_active is False
+        assert preloaded_agent.revoked_at is not None
+    finally:
+        request_session.rollback()
+        request_session.close()
+        database.close()
+
+    assert phase04_presence_snapshot(settings, agent_id) == before_replay
+    verification_database = Database(settings.database_url)
+    try:
+        with verification_database.session_factory() as verification_session:
+            locked_presence = verification_session.scalar(
+                select(AgentPresence)
+                .where(AgentPresence.agent_id == UUID(agent_id))
+                .with_for_update(nowait=True)
+            )
+            assert locked_presence is not None
+            verification_session.rollback()
+    finally:
+        verification_database.close()
+
+
+def test_phase04_concurrent_exact_presence_replays_are_read_only(
+    client: TestClient,
+    settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, agent_id, credential, _, accepted_manifest = phase04_agent_with_manifest(client)
+    reported_at = datetime.now(UTC)
+    mobile = phase04_presence_payload(
+        kind="mobile",
+        agent_id=agent_id,
+        manifest=accepted_manifest,
+        reported_at=reported_at,
+    )
+    initial = client.post(
+        "/api/v1/agents/self/presence",
+        headers=agent_headers(credential),
+        json=mobile,
+    )
+    assert initial.status_code == 200, initial.text
+    before = phase04_presence_snapshot(settings, agent_id)
+    freeze_agent_protocol_clock(
+        monkeypatch,
+        reported_at + timedelta(seconds=301),
+    )
+    gate = Barrier(3)
+    headers = [agent_headers(credential), agent_headers(credential)]
+
+    def replay(request_headers: dict[str, str]) -> tuple[int, dict[str, Any], str | None]:
+        gate.wait(timeout=10)
+        response = client.post(
+            "/api/v1/agents/self/presence",
+            headers=request_headers,
+            json=mobile,
+        )
+        return response.status_code, response.json(), response.headers.get("X-Correlation-ID")
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [executor.submit(replay, item) for item in headers]
+        gate.wait(timeout=10)
+        responses = [future.result(timeout=30) for future in futures]
+
+    assert [item[0] for item in responses] == [200, 200]
+    assert [item[1] for item in responses] == [initial.json(), initial.json()]
+    assert {item[2] for item in responses} == {
+        headers[0]["X-Correlation-ID"],
+        headers[1]["X-Correlation-ID"],
+    }
+    assert phase04_presence_snapshot(settings, agent_id) == before
 
 
 def test_phase04_nonce_replay_clock_skew_and_idempotency_conflict(

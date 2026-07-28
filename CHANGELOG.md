@@ -8,6 +8,12 @@ Versioning cuando existan releases publicadas.
 
 ## Unreleased
 
+- Corregido el replay exacto de heartbeat y mobile presence: un body durable ya
+  aceptado puede recuperar su acknowledgement después de vencer el skew de
+  `agent_reported_at`, siempre bajo autenticación, timestamp HTTP, nonce,
+  revocación y rate limit vigentes. El replay no extiende presencia ni modifica
+  timestamps, `last_seen_at`, manifest, auditoría o versión persistida; no hay
+  cambios de schema, OpenAPI o migraciones.
 - Agregado C09 del agente Android: modelos JVM puros de conectividad, perfiles
   `BASIC` y `WIFI_TEST_AUTHORIZED`, observación lazy de la red por defecto,
   asociación Wi-Fi separada, SSID/BSSID autorizados y redactados en
