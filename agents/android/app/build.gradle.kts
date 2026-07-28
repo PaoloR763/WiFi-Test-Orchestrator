@@ -63,25 +63,23 @@ val mergedReleaseManifest =
     )
 
 tasks.withType<Test>().configureEach {
-    if (name == "testDebugUnitTest") {
-        dependsOn("processDebugMainManifest", "processReleaseMainManifest")
-        inputs.files(
-            sourceManifest,
-            backupRules,
-            dataExtractionRules,
-            mergedDebugManifest,
-            mergedReleaseManifest,
+    dependsOn("processDebugMainManifest", "processReleaseMainManifest")
+    inputs.files(
+        sourceManifest,
+        backupRules,
+        dataExtractionRules,
+        mergedDebugManifest,
+        mergedReleaseManifest,
+    )
+    doFirst {
+        systemProperty("wto.android.app.projectDir", layout.projectDirectory.asFile.absolutePath)
+        systemProperty(
+            "wto.android.app.mergedDebugManifest",
+            mergedDebugManifest.get().asFile.absolutePath,
         )
-        doFirst {
-            systemProperty("wto.android.app.projectDir", layout.projectDirectory.asFile.absolutePath)
-            systemProperty(
-                "wto.android.app.mergedDebugManifest",
-                mergedDebugManifest.get().asFile.absolutePath,
-            )
-            systemProperty(
-                "wto.android.app.mergedReleaseManifest",
-                mergedReleaseManifest.get().asFile.absolutePath,
-            )
-        }
+        systemProperty(
+            "wto.android.app.mergedReleaseManifest",
+            mergedReleaseManifest.get().asFile.absolutePath,
+        )
     }
 }

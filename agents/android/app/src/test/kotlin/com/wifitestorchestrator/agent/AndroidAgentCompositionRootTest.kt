@@ -6,6 +6,11 @@ import com.wifitestorchestrator.agent.data.enrollment.coordination.EnrollmentCoo
 import com.wifitestorchestrator.agent.data.enrollment.coordination.EnrollmentInvocationIntent
 import com.wifitestorchestrator.agent.data.capability.CapabilityManifestPublicationResult
 import com.wifitestorchestrator.agent.data.capability.CapabilityManifestPublisher
+import com.wifitestorchestrator.agent.domain.connectivity.ConnectivityCollectionProfile
+import com.wifitestorchestrator.agent.domain.connectivity.ConnectivityObservationListener
+import com.wifitestorchestrator.agent.domain.connectivity.ConnectivityObserver
+import com.wifitestorchestrator.agent.domain.connectivity.ConnectivityObserverCommandResult
+import com.wifitestorchestrator.agent.domain.connectivity.ConnectivityObserverState
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.test.Test
@@ -84,6 +89,52 @@ class AndroidAgentCompositionRootTest {
         assertEquals(1, compositions)
         assertEquals(0, publisher.executions)
     }
+
+    @Test
+    fun `connectivity observer composition is lazy memoized and never starts implicitly`() {
+        var compositions = 0
+        val observer = NeverStartedConnectivityObserver()
+        val root =
+            AndroidAgentCompositionRoot(
+                coordinatorFactory = { NeverExecutedCoordinator() },
+                capabilityManifestPublisherFactory = { NeverExecutedPublisher() },
+                connectivityObserverFactory = {
+                    compositions += 1
+                    observer
+                },
+            )
+
+        assertEquals(0, compositions)
+        assertEquals(0, observer.starts)
+        assertSame(observer, root.connectivityObserver)
+        assertSame(observer, root.connectivityObserver)
+        assertEquals(1, compositions)
+        assertEquals(0, observer.starts)
+    }
+}
+
+private class NeverStartedConnectivityObserver : ConnectivityObserver {
+    var starts: Int = 0
+        private set
+
+    override fun start(
+        profile: ConnectivityCollectionProfile,
+    ): ConnectivityObserverCommandResult {
+        starts += 1
+        error("The lazy composition test must not start connectivity observation.")
+    }
+
+    override fun stop(): ConnectivityObserverCommandResult =
+        ConnectivityObserverCommandResult.Accepted(ConnectivityObserverState.stopped())
+
+    override fun currentState(): ConnectivityObserverState = ConnectivityObserverState.new()
+
+    override fun setListener(
+        listener: ConnectivityObservationListener?,
+    ): ConnectivityObserverCommandResult =
+        ConnectivityObserverCommandResult.Accepted(currentState())
+
+    override fun close() = Unit
 }
 
 private class NeverExecutedPublisher : CapabilityManifestPublisher {

@@ -303,23 +303,27 @@ Contradicciones o ambigüedades detectadas:
   AES-256-GCM mediante Android Keystore; C06 Room v2 persiste identidad backend,
   metadata `ACTIVE` y el envelope ya protegido con rotación monotónica y
   servidor inmutable; C07 coordina C03–C06 bajo mutex y guard de proceso, sin
-  retry automático, y compone el flujo lazy desde `:app`. C08 agrega el
-  Capability Manifest determinista de 15 filas, secuencia inicial 0, Room v3
-  accepted/pending y publicación HTTPS autenticada/reintentable. No existen
-  todavía WorkManager, UI, observación Wi-Fi/conectividad, probes ni tareas
-  remotas; tampoco existe un Foreground Service sin operación legítima.
-- **Impacto:** La base C01–C08 puede compilarse y probarse en host, C07 puede
-  representar enrolamiento durable local después de recibir un envelope válido,
-  y C08 puede publicar de forma explícita qué funciones están planificadas,
-  excluidas o condicionadas. Todavía no constituye un agente Android funcional
-  completo ni puede ejecutar pruebas.
+   retry automático, y compone el flujo lazy desde `:app`. C08 agrega el
+   Capability Manifest determinista de 15 filas, secuencia inicial 0, Room v3
+   accepted/pending y publicación HTTPS autenticada/reintentable. C09 agrega
+   observación local, pasiva, lazy y explícita de red por defecto y asociación
+   Wi-Fi, con perfiles `BASIC`/`WIFI_TEST_AUTHORIZED`, source/confidence/reason,
+   UTC/monotonic/sequence y sin persistencia o transporte. No existen todavía
+   WorkManager, UI, probes ni tareas remotas; tampoco existe un Foreground
+   Service sin operación legítima.
+- **Impacto:** La base C01–C09 puede compilarse y probarse en host, C07 puede
+   representar enrolamiento durable local después de recibir un envelope válido,
+   y C08 puede publicar de forma explícita qué funciones están planificadas,
+   excluidas o condicionadas. C09 aporta contexto local para testing autorizado,
+   pero no ejecuta pruebas ni publica telemetría. Todavía no constituye un agente
+   Android funcional completo.
   C05 distingue la limitación conocida de observabilidad unlocked-device en API
   29–36.0 y sólo acepta el alias v1 cuando todos los demás atributos son exactos;
   desde API 36.1 exige evidencia observada `NOT_REQUIRED`. El guard C07 se pierde
   con process death y no reemplaza reconciliación durable.
-- **Motivo por el que no está completa:** Faltan C09–C14, incluidos
-  observación Wi-Fi/conectividad, runtime/lifecycle, UI,
-  instrumentación real, CI y cierre documental.
+- **Motivo por el que no está completa:** Faltan C10–C14, incluidos
+   runtime/lifecycle operativo, UI, instrumentación real, CI y cierre
+   documental.
 - **Dependencias:** Contratos, orquestación móvil, persistencia Room v3,
   lifecycle Android y futuros providers de probes/tráfico.
 - **Riesgos:** Confundir atomicidad SQLite con atomicidad entre backend,
@@ -327,9 +331,10 @@ Contradicciones o ambigüedades detectadas:
   scan/background ilimitado o capacidades fuera de APIs verificadas; asumir
   evidencia positiva de unlocked-device antes de API 36.1, donde sólo existe
   una regla de compatibilidad acotada por alias y atributos observables.
-- **Workaround actual:** Ninguno que equivalga a un agente. Las capas C01–C08
-  permiten continuar desarrollo y tests host sin persistir plaintext.
-- **Criterios de aceptación:** Completar C09–C14 y la matriz instrumentada al
+- **Workaround actual:** Ninguno que equivalga a un agente. Las capas C01–C09
+   permiten continuar desarrollo y tests host; el observer C09 debe iniciarse
+   explícitamente y sus snapshots permanecen sólo en memoria.
+ - **Criterios de aceptación:** Completar C10–C14 y la matriz instrumentada al
   menos en API 29 y API 36/36.1, con permisos denegados, lifecycle,
   foreground/background, cambio Wi-Fi/celular, Doze, process death, Keystore,
   backup/restore y hardware presente/ausente.
@@ -337,9 +342,10 @@ Contradicciones o ambigüedades detectadas:
   `docs/phase08/c03-enrollment-transport.md`,
   `docs/phase08/c04-room-persistence.md` y
   `docs/phase08/c05-android-keystore.md` y
-  `docs/phase08/c06-protected-enrollment-persistence.md` y
-  `docs/phase08/c07-enrollment-coordinator.md` y
-  `docs/phase08/c08-android-capability-manifest.md`.
+   `docs/phase08/c06-protected-enrollment-persistence.md` y
+   `docs/phase08/c07-enrollment-coordinator.md` y
+   `docs/phase08/c08-android-capability-manifest.md` y
+   `docs/phase08/c09-android-connectivity-observation.md`.
 - **Evidencia de validación requerida:** Unit/instrumented tests, permisos
   denegados, foreground/background, cambio Wi-Fi/celular, Doze y terminación de
   proceso en dispositivos reales; provider `AndroidKeyStore`, `encoded == null`,
@@ -348,11 +354,10 @@ Contradicciones o ambigüedades detectadas:
 - **Decisión pendiente:** Validación instrumentada/OEM de la regla unlocked-device
   en API 29 y 36.1, matriz final de API levels, canal de distribución y prioridad
   de producto.
-- **Fase futura sugerida:** Fase 08 en curso: C09 observación pasiva,
-  C10 WorkManager/presence, C11 UI con FGS condicionado, C12 instrumentación,
-  C13 CI y C14 cierre. Tareas remotas y probes permanecen en Fases 10 y 11
-  globales.
-- **Última revisión:** 2026-07-25.
+- **Fase futura sugerida:** Fase 08 en curso: C10 WorkManager/presence, C11 UI
+   con FGS condicionado, C12 instrumentación, C13 CI y C14 cierre. Tareas
+   remotas y probes permanecen en Fases 10 y 11 globales.
+- **Última revisión:** 2026-07-26.
 
 ### FW-MOB-003 — Enforcement arquitectónico estático del agente Android
 

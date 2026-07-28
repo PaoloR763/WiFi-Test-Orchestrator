@@ -75,16 +75,26 @@ class AndroidBackupPolicyTest {
     }
 
     @Test
-    fun `merged manifest contains only the existing Internet permission`() {
+    fun `merged manifest contains exactly the C09 connectivity permissions`() {
         mergedManifests.forEach { manifest ->
             val document = parse(manifest)
             val permissions = document.getElementsByTagName("uses-permission")
             val names =
                 (0 until permissions.length).map { index ->
                     (permissions.item(index) as Element).androidAttribute("name")
-                }.toSet()
+                }
 
-            assertEquals(setOf("android.permission.INTERNET"), names)
+            assertEquals(5, names.size)
+            assertEquals(
+                setOf(
+                    "android.permission.INTERNET",
+                    "android.permission.ACCESS_NETWORK_STATE",
+                    "android.permission.ACCESS_WIFI_STATE",
+                    "android.permission.ACCESS_COARSE_LOCATION",
+                    "android.permission.ACCESS_FINE_LOCATION",
+                ),
+                names.toSet(),
+            )
         }
     }
 

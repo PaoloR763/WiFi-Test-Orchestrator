@@ -5,9 +5,10 @@ enrolamiento C02A, el dominio base puro C02B, la integración inicial de
 enrolamiento C03, la base Room C04, la protección Android Keystore C05, la
 persistencia del enrolamiento protegido C06 y el coordinador C07. El proyecto
 incorpora en C08 la publicación explícita y durable del Capability Manifest,
-pero sigue sin pantallas, actividades, servicios, WorkManager, probes ni
-lifecycle operativo. C07 integra en memoria C03–C06; C08 publica un snapshot
-de 15 capabilities sin afirmar que las funciones diferidas estén implementadas.
+y en C09 un observer local, pasivo y explícito de conectividad/Wi-Fi. Sigue sin
+pantallas, actividades, servicios, WorkManager, probes ni lifecycle operativo
+automático. C07 integra en memoria C03–C06; C08 publica un snapshot de 15
+capabilities sin reinterpretarlo por C09.
 
 ## Toolchain
 
@@ -40,14 +41,16 @@ compatible.
   del Capability Manifest/ack C08.
 - `:core:domain`: módulo Kotlin/JVM puro con identidad, configuración segura,
   secretos, credenciales, aceptación factual de enrolamiento C02B y el port y
-  modelos criptográficos puros C05 y el catálogo determinista C08.
+  modelos criptográficos puros C05, el catálogo determinista C08 y los modelos,
+  perfiles y lifecycle del observer C09.
 - `:core:data`: biblioteca Android con mapping, JSON estricto y transporte HTTPS
   de enrolamiento C03, persistencia local C04, el repositorio Room v2 C06 y el
   coordinador C07 y, en C08, canonicalización, publicación HTTPS y Room v3 para
   accepted/pending; depende de domain y contracts, nunca de platform.
 - `:core:platform`: biblioteca Android con el adapter Android Keystore/AES-GCM
-  C05 y el facts provider acotado a `Build.VERSION.RELEASE`/`FEATURE_WIFI` C08;
-  depende únicamente de domain.
+  C05, el facts provider acotado a
+  `Build.VERSION.RELEASE`/`FEATURE_WIFI` C08 y el facade/mapper/observer pasivo
+  C09; depende únicamente de domain.
 
 C07 agrega `AndroidAgentCompositionRoot`: compone lazy el cliente C03, el
 repositorio C06, el protector C05 y la factory pública del coordinador. La
@@ -59,6 +62,10 @@ C08 agrega otro lazy thread-safe al mismo composition root. Recibe exactamente
 de `BuildConfig` es el único cambio de configuración de build. Construir el root
 continúa sin abrir Room, tocar Keystore, crear coroutines, observar Wi-Fi o
 publicar.
+
+C09 agrega un tercer lazy thread-safe. Memoizar el observer no crea
+`HandlerThread`, no registra callbacks y no observa estado; sólo un `start()`
+explícito lo activa. `WtoApplication.onCreate()` permanece intacta.
 
 ## Contratos wire C02A
 
@@ -330,6 +337,42 @@ marcan conservadoramente `permission_missing` sin inventar `denied`.
 La matriz literal, transiciones de hardware, canonicalización, migración,
 rollback, HTTP, seguridad y rebaseline C09–C14 están en
 [`docs/phase08/c08-android-capability-manifest.md`](../../docs/phase08/c08-android-capability-manifest.md).
+
+## Observación pasiva de conectividad y Wi-Fi C09
+
+C09 separa la evidencia de red por defecto de la asociación Wi-Fi. El perfil
+default `BASIC` observa transportes y capabilities sin pedir información
+location-sensitive y redacta SSID/BSSID por policy. El perfil explícito
+`WIFI_TEST_AUTHORIZED` intenta obtener esos identificadores únicamente con
+manifest, grant runtime, ubicación y API compatibles; cualquier ausencia
+degrada sólo los campos afectados con `null/reason`.
+
+En API 31+ el mapper usa el `WifiInfo` entregado dentro de
+`NetworkCapabilities` para la misma Network. En API 29–30 el fallback autorizado
+de `WifiManager` queda marcado legacy, con confianza menor y sin afirmar red
+default o path de tráfico. VPN y múltiples transportes se preservan.
+
+Los snapshots en memoria incluyen UTC, `elapsedRealtimeNanos`, sequence local,
+availability, source, confidence y reason. Pueden incluir RSSI, frecuencia,
+banda/canal derivados, link rates, standard y security cuando Android los
+expone; no presentan link speed como throughput ni inventan channel width o
+MLO. No hay persistencia, DTO wire, publicación, upload o log de SSID/BSSID.
+
+El manifest suma exactamente `ACCESS_NETWORK_STATE`, `ACCESS_WIFI_STATE`,
+`ACCESS_COARSE_LOCATION` y `ACCESS_FINE_LOCATION`; COARSE acompaña a FINE
+porque Android 12/API 31+ exige declararlas y solicitarlas conjuntamente para
+un futuro grant de ubicación precisa. `INTERNET` continúa llegando desde
+`:core:data`.
+No se declaran `NEARBY_WIFI_DEVICES`, `CHANGE_WIFI_STATE`, `neverForLocation` ni
+permisos FGS. C09 no hace scan, conexión o administración Wi-Fi y no solicita
+permisos mediante UI. `WIFI_TEST_AUTHORIZED` continúa exigiendo FINE realmente
+concedido para intentar SSID/BSSID; COARSE por sí solo no es suficiente.
+`BASIC` continúa operativo sin permisos peligrosos y no se suprime
+`CoarseFineLocation`.
+
+La matriz API/permisos, sentinels, lifecycle, privacidad, comparabilidad,
+rollback y validación pendiente están en
+[`docs/phase08/c09-android-connectivity-observation.md`](../../docs/phase08/c09-android-connectivity-observation.md).
 
 ## Generación verificada del Wrapper
 

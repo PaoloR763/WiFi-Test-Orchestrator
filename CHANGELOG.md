@@ -8,6 +8,19 @@ Versioning cuando existan releases publicadas.
 
 ## Unreleased
 
+- Agregado C09 del agente Android: modelos JVM puros de conectividad, perfiles
+  `BASIC` y `WIFI_TEST_AUTHORIZED`, observación lazy de la red por defecto,
+  asociación Wi-Fi separada, SSID/BSSID autorizados y redactados en
+  representaciones textuales, RSSI/frecuencia/banda/canal/link rates/
+  standard/security sujetos a API y permisos, UTC/monotonic/sequence y
+  lifecycle determinista. API 29–30 conserva `WifiManager` como evidencia
+  legacy no network-scoped; API 31+ usa `WifiInfo` recibido por callback.
+  Declara sólo `ACCESS_NETWORK_STATE`, `ACCESS_WIFI_STATE`,
+  `ACCESS_COARSE_LOCATION` y `ACCESS_FINE_LOCATION`: COARSE acompaña a FINE
+  para un futuro request preciso válido en API 31+, aunque C09 no solicita
+  permisos mediante UI y sólo FINE concedido habilita el intento de
+  SSID/BSSID. No agrega `NEARBY_WIFI_DEVICES`, componentes, persistencia,
+  transporte, scan, control Wi-Fi, probes, tráfico, UI o ejecución background.
 - Agregado C08 del agente Android: catálogo determinista de 15 capabilities,
   fingerprint semántico, secuencia inicial 0 y monotónica, snapshot pending
   congelado, Room v3 con migración 2→3/guards/lectura raw fail-closed,

@@ -7,6 +7,8 @@ import java.io.File
 import java.util.Date
 import java.util.concurrent.CancellationException
 import java.util.concurrent.atomic.AtomicReference
+import javax.xml.XMLConstants
+import javax.xml.parsers.DocumentBuilderFactory
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -18,6 +20,7 @@ import kotlin.test.assertTrue
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import org.w3c.dom.Element
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [29])
@@ -639,21 +642,51 @@ class AndroidKeystorePolicyTest {
     }
 
     @Test
-    fun sourceManifestContainsNoPermissionsOrComponents() {
+    fun sourceManifestContainsExactlyTheC09PermissionsAndNoComponentsOrRuntimePolicy() {
         val projectDir = File(checkNotNull(System.getProperty("wto.android.platform.projectDir")))
-        val manifest = File(projectDir, "src/main/AndroidManifest.xml").readText()
+        val factory =
+            DocumentBuilderFactory.newInstance().apply {
+                isNamespaceAware = true
+                setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true)
+                setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
+                setAttribute("http://javax.xml.XMLConstants/property/accessExternalDTD", "")
+                setAttribute("http://javax.xml.XMLConstants/property/accessExternalSchema", "")
+            }
+        val document =
+            factory.newDocumentBuilder().parse(
+                File(projectDir, "src/main/AndroidManifest.xml"),
+            )
+        val permissions = document.getElementsByTagName("uses-permission")
+        val names =
+            (0 until permissions.length).map { index ->
+                (permissions.item(index) as Element).getAttributeNS(
+                    ANDROID_NAMESPACE,
+                    "name",
+                )
+            }
+        val expected =
+            setOf(
+                "android.permission.ACCESS_NETWORK_STATE",
+                "android.permission.ACCESS_WIFI_STATE",
+                "android.permission.ACCESS_COARSE_LOCATION",
+                "android.permission.ACCESS_FINE_LOCATION",
+            )
 
-        listOf(
-            "uses-permission",
-            "<activity",
-            "<service",
-            "<receiver",
-            "<provider",
-            "android:process",
-            "usesCleartextTraffic",
-            "networkSecurityConfig",
-        ).forEach { forbidden -> assertFalse(manifest.contains(forbidden)) }
-        assertTrue(manifest.contains("<manifest />"))
+        assertEquals(expected.size, names.size)
+        assertEquals(expected, names.toSet())
+        listOf("activity", "service", "receiver", "provider").forEach { component ->
+            assertEquals(0, document.getElementsByTagName(component).length)
+        }
+        val elements = document.getElementsByTagName("*")
+        for (index in 0 until elements.length) {
+            val element = elements.item(index) as Element
+            assertFalse(element.hasAttributeNS(ANDROID_NAMESPACE, "process"))
+            assertFalse(element.hasAttributeNS(ANDROID_NAMESPACE, "usesCleartextTraffic"))
+            assertFalse(element.hasAttributeNS(ANDROID_NAMESPACE, "networkSecurityConfig"))
+        }
     }
 
+    private companion object {
+        const val ANDROID_NAMESPACE = "http://schemas.android.com/apk/res/android"
+    }
 }
